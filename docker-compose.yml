@@ -1,0 +1,14 @@
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    environment:
+      POSTGRES_USER: aipal
+      POSTGRES_PASSWORD: aipal_dev
+      POSTGRES_DB: aipal
+    ports:
+      - "5432:5432"
+    volumes:
+      - aipal_pg:/var/lib/postgresql/data
+
+volumes:
+  aipal_pg:

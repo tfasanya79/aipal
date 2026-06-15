@@ -1,0 +1,147 @@
+import 'package:flutter/foundation.dart';
+import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
+
+import '../providers/app_state.dart';
+import '../services/live_session.dart';
+import '../widgets/aipal_logo.dart';
+import '../widgets/orb_widget.dart';
+import '../widgets/plan_draft_card.dart';
+import 'text_chat_screen.dart';
+
+class CompanionScreen extends StatefulWidget {
+  const CompanionScreen({super.key});
+
+  @override
+  State<CompanionScreen> createState() => _CompanionScreenState();
+}
+
+class _CompanionScreenState extends State<CompanionScreen> {
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) {
+        context.read<AppState>().syncWakeListener();
+      }
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Consumer<AppState>(
+      builder: (context, state, _) {
+        final live = state.liveSession.state;
+        final label = live == LiveState.resting ? 'Resting' : 'Live — listening';
+        return Padding(
+          padding: const EdgeInsets.all(20),
+          child: Column(
+            children: [
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  const AiPalBrandRow(),
+                  Chip(
+                    label: Text(label),
+                    backgroundColor: live == LiveState.resting
+                        ? Colors.white12
+                        : Theme.of(context).colorScheme.primary.withValues(alpha: 0.25),
+                  ),
+                ],
+              ),
+              if (state.wakeWordListening)
+                Padding(
+                  padding: const EdgeInsets.only(top: 12),
+                  child: Text(
+                    defaultTargetPlatform == TargetPlatform.android
+                        ? 'Listening for Hi Pal — works in background too'
+                        : 'Say Hi Pal to start',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      fontSize: 13,
+                      color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.85),
+                    ),
+                  ),
+                ),
+              if (kIsWeb && state.wakeWordEnabled)
+                Padding(
+                  padding: const EdgeInsets.only(top: 12),
+                  child: Text(
+                    'Wake word works on the Android app. On web, tap the orb to go Live.',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(fontSize: 12, color: Colors.white.withValues(alpha: 0.55)),
+                  ),
+                ),
+              if (state.checkinBanner != null && live == LiveState.resting)
+                Padding(
+                  padding: const EdgeInsets.only(top: 12),
+                  child: Text(
+                    state.checkinBanner!,
+                    textAlign: TextAlign.center,
+                    style: TextStyle(fontSize: 13, color: Colors.white.withValues(alpha: 0.6)),
+                  ),
+                ),
+              if (live == LiveState.resting && state.nextOpenTask != null)
+                Padding(
+                  padding: const EdgeInsets.only(top: 12),
+                  child: ActionChip(
+                    avatar: Icon(Icons.arrow_forward, size: 16, color: Theme.of(context).colorScheme.primary),
+                    label: Text(
+                      'Up next: ${state.nextOpenTask!['title']}',
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    onPressed: () => state.goToTab(1),
+                  ),
+                ),
+              const Spacer(),
+              OrbWidget(
+                state: live,
+                onTap: () => state.toggleLive(),
+              ),
+              const SizedBox(height: 24),
+              if (state.lastReply != null)
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 12),
+                  child: Text(
+                    state.lastReply!,
+                    textAlign: TextAlign.center,
+                    style: TextStyle(color: Colors.white.withValues(alpha: 0.85), height: 1.4),
+                  ),
+                ),
+              if (state.pendingPlanDraft != null)
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(12, 12, 12, 0),
+                  child: PlanDraftCard(
+                    draft: state.pendingPlanDraft!,
+                    onConfirm: () => state.confirmPlanDraft(),
+                    onDiscard: () => state.discardPlanDraft(),
+                  ),
+                ),
+              const Spacer(),
+              OutlinedButton.icon(
+                onPressed: () {
+                  Navigator.of(context).push(
+                    MaterialPageRoute(builder: (_) => const TextChatScreen()),
+                  );
+                },
+                icon: const Icon(Icons.chat_bubble_outline),
+                label: const Text('Text mode'),
+              ),
+              const SizedBox(height: 12),
+              Text(
+                live == LiveState.resting
+                    ? (state.wakeWordListening
+                        ? (defaultTargetPlatform == TargetPlatform.android
+                            ? 'Say Hi Pal anywhere or tap the orb to go Live'
+                            : 'Say Hi Pal or tap the orb to go Live')
+                        : 'Tap the orb to go Live — just talk naturally')
+                    : 'Tap the orb again to stop Live mode',
+                style: TextStyle(fontSize: 12, color: Colors.white.withValues(alpha: 0.5)),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+}
