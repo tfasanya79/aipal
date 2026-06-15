@@ -206,6 +206,14 @@ def save_config(cfg: dict) -> None:
 
 
 
+def get_owner_id(gh: GitHubGraphQL, owner: str) -> str:
+    data = gh.query("query($login:String!){user(login:$login){id}}", {"login": owner})
+    node = data.get("user")
+    if not node:
+        raise RuntimeError(f"User not found: {owner}")
+    return node["id"]
+
+
 def get_repo(gh: GitHubGraphQL, owner: str, repo: str) -> dict:
     data = gh.query(
         """
@@ -221,29 +229,29 @@ def get_repo(gh: GitHubGraphQL, owner: str, repo: str) -> dict:
     return repository
 
 
-def find_project(gh: GitHubGraphQL, owner: str, repo: str, title: str) -> dict | None:
-    """Find a repository-owned project (GITHUB_TOKEN can manage these in Actions)."""
+def find_project(gh: GitHubGraphQL, owner: str, title: str) -> dict | None:
+    """Find user-owned project (PAT + project scope — GitHub-documented path)."""
     data = gh.query(
         """
-        query($owner:String!,$name:String!){
-          repository(owner:$owner,name:$name){
+        query($login:String!){
+          user(login:$login){
             projectsV2(first:50){ nodes { id number title url } }
           }
         }
         """,
-        {"owner": owner, "name": repo},
+        {"login": owner},
     )
-    repository = data.get("repository")
-    if not repository:
+    user = data.get("user")
+    if not user:
         return None
-    for node in repository["projectsV2"]["nodes"]:
+    for node in user["projectsV2"]["nodes"]:
         if node["title"] == title:
             return node
     return None
 
 
-def create_project(gh: GitHubGraphQL, owner: str, repo: str, title: str) -> dict:
-    repository = get_repo(gh, owner, repo)
+def create_project(gh: GitHubGraphQL, owner: str, title: str) -> dict:
+    owner_id = get_owner_id(gh, owner)
     data = gh.query(
         """
         mutation($ownerId:ID!,$title:String!){
@@ -252,16 +260,29 @@ def create_project(gh: GitHubGraphQL, owner: str, repo: str, title: str) -> dict
           }
         }
         """,
-        {"ownerId": repository["id"], "title": title},
+        {"ownerId": owner_id, "title": title},
     )
     return data["createProjectV2"]["projectV2"]
 
 
-def get_project_fields(gh: GitHubGraphQL, owner: str, repo: str, number: int) -> dict:
+def link_project_to_repo(gh: GitHubGraphQL, project_id: str, repo_id: str) -> None:
+    gh.query(
+        """
+        mutation($projectId:ID!,$repositoryId:ID!){
+          linkProjectV2ToRepository(input:{projectId:$projectId,repositoryId:$repositoryId}){
+            clientMutationId
+          }
+        }
+        """,
+        {"projectId": project_id, "repositoryId": repo_id},
+    )
+
+
+def get_project_fields(gh: GitHubGraphQL, owner: str, number: int) -> dict:
     data = gh.query(
         """
-        query($owner:String!,$name:String!,$number:Int!){
-          repository(owner:$owner,name:$name){
+        query($login:String!,$number:Int!){
+          user(login:$login){
             projectV2(number:$number){
               id
               number
@@ -279,11 +300,11 @@ def get_project_fields(gh: GitHubGraphQL, owner: str, repo: str, number: int) ->
           }
         }
         """,
-        {"owner": owner, "name": repo, "number": number},
+        {"login": owner, "number": number},
     )
-    project = data["repository"]["projectV2"]
+    project = data["user"]["projectV2"]
     if not project:
-        raise RuntimeError(f"Project #{number} not found on {owner}/{repo}")
+        raise RuntimeError(f"Project #{number} not found for user {owner}")
     return project
 
 
@@ -293,23 +314,28 @@ def ensure_single_select_field(
     if name in existing:
         return existing[name]
     option_inputs = [{"name": opt, "color": "GRAY"} for opt in options]
-    data = gh.query(
-        """
-        mutation($projectId:ID!,$name:String!,$options:[ProjectV2SingleSelectFieldOptionInput!]!){
-          createProjectV2Field(input:{
-            projectId:$projectId, dataType:SINGLE_SELECT, name:$name,
-            singleSelectOptions:$options
-          }){
-            projectV2Field{
-              ... on ProjectV2SingleSelectField { id name options { id name } }
+    try:
+        data = gh.query(
+            """
+            mutation($projectId:ID!,$name:String!,$options:[ProjectV2SingleSelectFieldOptionInput!]!){
+              createProjectV2Field(input:{
+                projectId:$projectId, dataType:SINGLE_SELECT, name:$name,
+                singleSelectOptions:$options
+              }){
+                projectV2Field{
+                  ... on ProjectV2SingleSelectField { id name options { id name } }
+                }
+              }
             }
-          }
-        }
-        """,
-        {"projectId": project_id, "name": name, "options": option_inputs},
-    )
-    field = data["createProjectV2Field"]["projectV2Field"]
-    return {"id": field["id"], "options": {o["name"]: o["id"] for o in field["options"]}}
+            """,
+            {"projectId": project_id, "name": name, "options": option_inputs},
+        )
+        field = data["createProjectV2Field"]["projectV2Field"]
+        return {"id": field["id"], "options": {o["name"]: o["id"] for o in field["options"]}}
+    except RuntimeError as exc:
+        if "already exists" in str(exc).lower() or "name" in str(exc).lower():
+            return existing.get(name, {"id": "", "options": {}})
+        raise
 
 
 def parse_fields(nodes: list) -> dict:
@@ -512,23 +538,25 @@ def bootstrap(gh: GitHubGraphQL, cfg: dict, bootstrap_flag: bool) -> dict:
     project = None
     if cfg.get("project_number"):
         try:
-            project = get_project_fields(gh, owner, repo, int(cfg["project_number"]))
+            project = get_project_fields(gh, owner, int(cfg["project_number"]))
         except RuntimeError:
             project = None
     if project is None:
-        found = find_project(gh, owner, repo, title)
+        found = find_project(gh, owner, title)
         if found:
-            project = get_project_fields(gh, owner, repo, found["number"])
+            project = get_project_fields(gh, owner, found["number"])
         elif bootstrap_flag:
-            created = create_project(gh, owner, repo, title)
-            project = get_project_fields(gh, owner, repo, created["number"])
+            created = create_project(gh, owner, title)
+            repository = get_repo(gh, owner, repo)
+            link_project_to_repo(gh, created["id"], repository["id"])
+            project = get_project_fields(gh, owner, created["number"])
             cfg["project_number"] = project["number"]
             cfg["project_url"] = project["url"]
         elif cfg.get("project_number"):
-            project = get_project_fields(gh, owner, repo, int(cfg["project_number"]))
+            project = get_project_fields(gh, owner, int(cfg["project_number"]))
         else:
             raise SystemExit(
-                f"Project '{title}' not found on {owner}/{repo}. "
+                f"Project '{title}' not found for {owner}. "
                 "Run with --bootstrap or scripts/sync-github-project.sh --bootstrap."
             )
 
@@ -538,8 +566,8 @@ def bootstrap(gh: GitHubGraphQL, cfg: dict, bootstrap_flag: bool) -> dict:
     cfg["project_id"] = project_id
 
     existing_fields = parse_fields(project["fields"]["nodes"])
+    # Use built-in Status field; only create Phase + Area custom fields.
     for name, options in [
-        ("Status", STATUS_OPTIONS),
         ("Phase", PHASE_OPTIONS),
         ("Area", AREA_OPTIONS),
     ]:
@@ -563,7 +591,7 @@ def sync_items(gh: GitHubGraphQL, cfg: dict, items: list[BacklogItem], version: 
     project_id = cfg["project_id"]
     project_number = int(cfg["project_number"])
     fields = cfg.get("fields") or parse_fields(
-        get_project_fields(gh, owner, repo, project_number)["fields"]["nodes"]
+        get_project_fields(gh, owner, project_number)["fields"]["nodes"]
     )
     repository = get_repo(gh, owner, repo)
     existing = fetch_tracked_issues(gh, owner, repo)

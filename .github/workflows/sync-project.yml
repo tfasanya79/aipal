@@ -25,6 +25,15 @@ jobs:
           token: ${{ secrets.GITHUB_TOKEN }}
           persist-credentials: true
 
+      - name: Verify PROJECT_SYNC_TOKEN is set
+        env:
+          PROJECT_SYNC_TOKEN: ${{ secrets.PROJECT_SYNC_TOKEN }}
+        run: |
+          if [ -z "$PROJECT_SYNC_TOKEN" ]; then
+            echo "::error::PROJECT_SYNC_TOKEN repository secret is missing"
+            exit 1
+          fi
+
       - name: Bootstrap and sync PRODUCT.md to GitHub Project
         env:
           GITHUB_TOKEN: ${{ secrets.PROJECT_SYNC_TOKEN }}
