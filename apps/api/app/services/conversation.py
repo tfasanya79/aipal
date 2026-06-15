@@ -43,7 +43,7 @@ async def load_history(
 
 
 async def has_chatted_today(db: AsyncSession, user_id: uuid.UUID) -> bool:
-    from datetime import UTC, date, datetime, timedelta
+    from datetime import UTC, date, datetime
 
     start = datetime.combine(date.today(), datetime.min.time()).replace(tzinfo=UTC)
     result = await db.execute(

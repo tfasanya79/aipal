@@ -15,7 +15,6 @@ on:
 permissions:
   contents: write
   issues: write
-  projects: write
 
 jobs:
   sync:
@@ -28,7 +27,7 @@ jobs:
 
       - name: Bootstrap and sync PRODUCT.md to GitHub Project
         env:
-          GITHUB_TOKEN: ${{ secrets.PROJECT_SYNC_TOKEN || secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.PROJECT_SYNC_TOKEN }}
           GITHUB_REPOSITORY: ${{ github.repository }}
         run: |
           set -euxo pipefail

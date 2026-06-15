@@ -244,7 +244,7 @@ Sources: [`done/ops-deploy-2026-06-09.md`](done/ops-deploy-2026-06-09.md), [`don
 | Cursor skill: `aipal-mobile` | **Done** | `.cursor/skills/aipal-mobile/` |
 | Cursor skill: `aipal-testers` | **Done** | `.cursor/skills/aipal-testers/` |
 | Cursor skill: `aipal-project-sync` | **Done** | `.cursor/skills/aipal-project-sync/` |
-| GitHub Project sync script + workflow | **Implemented; bootstrap pending** | `scripts/sync_github_project.py`, `.github/workflows/sync-project.yml` — CI has not committed `.github/project.json` yet |
+| GitHub Project sync script + workflow | **Ready** — requires `PROJECT_SYNC_TOKEN` repo secret; run Sync GitHub Project workflow |
 
 ---
 
@@ -290,7 +290,7 @@ Sources: [`done/ops-deploy-2026-06-09.md`](done/ops-deploy-2026-06-09.md), [`don
 
 ### Tooling / process
 
-- **GitHub Project board** — sync script shipped; enable Actions **Read and write** permissions and run bootstrap workflow (or `gh auth login` + `./scripts/sync-github-project.sh --bootstrap`)
+- **GitHub Project board** — add `PROJECT_SYNC_TOKEN` secret (done); fix workflow YAML (done); run **Sync GitHub Project** workflow
 - **Regression verification** — formalize periodic run of PRODUCT.md scenarios in release QA
 
 ### Ops (optional)

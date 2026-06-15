@@ -22,9 +22,9 @@ Suggested labels (maintainer may apply): `voice`, `today`, `wake`, `crash`, `and
 
 If the **Projects** tab is empty after pushing this repo:
 
-1. **GitHub → Settings → Actions → General → Workflow permissions** → choose **Read and write permissions** → Save.
-2. **Actions → Sync GitHub Project → Run workflow** (workflow_dispatch).
-3. Optional: add repo secret `PROJECT_SYNC_TOKEN` (PAT with `repo` + `project` scopes) if the default token is insufficient.
+1. **GitHub → Settings → Secrets → Actions** → add `PROJECT_SYNC_TOKEN` (classic PAT with `repo` + `project` scopes).
+2. **GitHub → Settings → Actions → General → Workflow permissions** → choose **Read and write permissions** → Save.
+3. **Actions → Sync GitHub Project → Run workflow** (workflow_dispatch).
 4. Local alternative: `gh auth login` then `./scripts/sync-github-project.sh --bootstrap`.
 
 ### Product status (source of truth)

@@ -25,7 +25,7 @@ Script: [`scripts/sync_github_project.py`](../../scripts/sync_github_project.py)
 
 2. **Commit and push to `main`** (preferred — triggers [`.github/workflows/sync-project.yml`](../../.github/workflows/sync-project.yml))
 
-3. **Or run locally** (needs `GITHUB_TOKEN`, `GH_TOKEN`, or `gh auth login`):
+3. **Or run locally** (needs `PROJECT_SYNC_TOKEN`, `GITHUB_TOKEN`, `GH_TOKEN`, or `gh auth login`):
    ```bash
    cd /home/dev/aipal
    chmod +x scripts/sync-github-project.sh
@@ -56,6 +56,6 @@ Script: [`scripts/sync_github_project.py`](../../scripts/sync_github_project.py)
 
 | Problem | Fix |
 |---------|-----|
-| `No GitHub token` locally | `gh auth login` or export `GITHUB_TOKEN` |
-| Project empty after push | Check Actions → "Sync GitHub Project"; re-run with `workflow_dispatch` |
-| Permission denied in CI | Repo Settings → Actions → General → Workflow permissions → **Read and write**; project is repository-owned (GITHUB_TOKEN works) |
+| `No GitHub token` locally | `gh auth login` or export `GITHUB_TOKEN` / `PROJECT_SYNC_TOKEN` |
+| Project empty after push | Add repo secret `PROJECT_SYNC_TOKEN` (classic PAT: `repo` + `project` scopes); run **Sync GitHub Project** workflow |
+| Permission denied in CI | Repo Settings → Actions → **Read and write** workflow permissions; sync step uses `PROJECT_SYNC_TOKEN` (GITHUB_TOKEN cannot access Projects v2) |

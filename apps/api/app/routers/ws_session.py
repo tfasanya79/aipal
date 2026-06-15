@@ -4,18 +4,14 @@ import time
 import uuid
 from datetime import UTC, datetime
 
-from fastapi import APIRouter, Depends, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from jose import JWTError, jwt
 from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..auth import create_access_token
 from ..config import get_settings
 from ..db import async_session
-from ..memory import memory_add, memory_search
 from ..models import LiveSession, User
 from ..safety import crisis_reply, is_crisis_likely
-from ..services import tasks as task_svc
 
 router = APIRouter()
 log = logging.getLogger("aipal.ws")
