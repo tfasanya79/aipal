@@ -12,7 +12,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
   issues: write
   projects: write
 
@@ -26,5 +26,14 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITHUB_REPOSITORY: ${{ github.repository }}
+        run: python3 scripts/sync_github_project.py --bootstrap
+
+      - name: Commit project.json if bootstrap wrote config
         run: |
-          python3 scripts/sync_github_project.py --bootstrap
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add .github/project.json
+          if ! git diff --staged --quiet; then
+            git commit -m "chore: update GitHub project sync config [skip ci]"
+            git push
+          fi

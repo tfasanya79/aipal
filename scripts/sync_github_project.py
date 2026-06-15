@@ -360,7 +360,7 @@ def fetch_tracked_issues(gh: GitHubGraphQL, owner: str, repo: str) -> dict[str, 
         """
         query($owner:String!,$name:String!){
           repository(owner:$owner,name:$name){
-            issues(first:100, states:[OPEN,CLOSED], labels:["track:backlog"]){
+            issues(first:100, states:[OPEN,CLOSED]){
               nodes{ id number title body state projectItems(first:5){
                 nodes{ id project{id number} }
               }}
@@ -373,6 +373,8 @@ def fetch_tracked_issues(gh: GitHubGraphQL, owner: str, repo: str) -> dict[str, 
     by_sync: dict[str, dict] = {}
     for issue in data["repository"]["issues"]["nodes"]:
         body = issue.get("body") or ""
+        if SYNC_MARKER not in body:
+            continue
         for line in body.splitlines():
             if line.strip().startswith(SYNC_MARKER):
                 sync_id = line.split(":", 1)[1].strip().rstrip("-->").strip()
