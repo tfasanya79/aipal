@@ -58,7 +58,7 @@ apps/mobile/        Flutter client (Android, web, iOS-capable)
 packages/contracts/ OpenAPI types
 infra/              Ansible + Caddy deploy
 scripts/            Build, deploy, smoke tests, wake model training
-docs/               PRODUCT.md, decisions, stakeholder roadmap
+docs/               PRODUCT.md, DELIVERABLES.md, decisions, stakeholder roadmap
 legacy/             v1 historical references
 .cursor/skills/     Cursor agent skills for release, mobile, brain
 ```
@@ -104,6 +104,7 @@ Release AAB/APK artifacts live under `.release_artifacts/` (gitignored).
 
 ## Docs
 
+- [Deliverables tracker](docs/DELIVERABLES.md) — master done / not-done / improvements audit
 - [Product status](docs/PRODUCT.md)
 - [Wake word decision](docs/decisions/wake-word-engine.md)
 - [Stakeholder roadmap](docs/stakeholder/ROADMAP.md)
