@@ -108,3 +108,8 @@ Release AAB/APK artifacts live under `.release_artifacts/` (gitignored).
 - [Wake word decision](docs/decisions/wake-word-engine.md)
 - [Stakeholder roadmap](docs/stakeholder/ROADMAP.md)
 - [Infra / deploy](infra/README.md)
+- [Contributing](CONTRIBUTING.md)
+
+## Roadmap board
+
+Phase backlog (A → C4) is synced to **GitHub → Projects → [AiPal Roadmap](https://github.com/tfasanya79/aipal/projects)** from [`docs/PRODUCT.md`](docs/PRODUCT.md) on every push to `main`. See [CONTRIBUTING.md](CONTRIBUTING.md).

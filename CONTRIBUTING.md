@@ -1,0 +1,45 @@
+# Contributing to AiPal
+
+Thank you for helping test and improve AiPal.
+
+## For testers (collaborators)
+
+1. **Install** — Play Internal opt-in link (from maintainer) or see [docs/releases/PLAY_INTERNAL_v2.md](docs/releases/PLAY_INTERNAL_v2.md).
+2. **Report bugs** — [GitHub Issues](https://github.com/tfasanya79/aipal/issues/new/choose) (use the bug report template).
+3. **Roadmap visibility** — [GitHub → Projects → AiPal Roadmap](https://github.com/tfasanya79/aipal/projects) (phase status synced from `docs/PRODUCT.md`).
+
+Include in every bug report:
+
+- Device + OS version
+- App build from **Settings** (e.g. `2.4.0 (18)`)
+- Steps to reproduce + screenshot if possible
+
+Suggested labels (maintainer may apply): `voice`, `today`, `wake`, `crash`, `android`.
+
+## For maintainers
+
+### Product status (source of truth)
+
+Update [`docs/PRODUCT.md`](docs/PRODUCT.md) when a phase item ships or is deferred. Push to `main` — the **Sync GitHub Project** workflow updates Issues and the Project board automatically.
+
+Manual sync:
+
+```bash
+./scripts/sync-github-project.sh --bootstrap   # first time
+./scripts/sync-github-project.sh
+```
+
+### Releases
+
+See [`.cursor/skills/aipal-release/SKILL.md`](.cursor/skills/aipal-release/SKILL.md) and [`scripts/deploy-all.sh`](scripts/deploy-all.sh).
+
+### Secrets (never commit)
+
+- `apps/api/.env` — copy from `apps/api/.env.example`
+- `.secrets/` — signing keys, Play API JSON (deploy VM only)
+
+## CI
+
+- **API** — pytest on `apps/api/**` changes
+- **Mobile** — `flutter analyze` on `apps/mobile/**` changes
+- **Project sync** — on `docs/PRODUCT.md` changes
