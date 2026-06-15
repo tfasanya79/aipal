@@ -22,11 +22,19 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Bootstrap project (gh CLI)
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          GITHUB_REPOSITORY_OWNER: ${{ github.repository_owner }}
+          GITHUB_REPOSITORY_NAME: ${{ github.event.repository.name }}
+        run: bash scripts/bootstrap_github_project.sh
+
       - name: Sync PRODUCT.md to GitHub Project
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITHUB_REPOSITORY: ${{ github.repository }}
-        run: python3 scripts/sync_github_project.py --bootstrap
+        run: python3 scripts/sync_github_project.py
 
       - name: Commit project.json if bootstrap wrote config
         run: |

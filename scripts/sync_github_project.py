@@ -521,16 +521,18 @@ def bootstrap(gh: GitHubGraphQL, cfg: dict, bootstrap_flag: bool) -> dict:
         found = find_project(gh, owner, title)
         if found:
             project = get_project_fields(gh, owner, found["number"])
-        elif bootstrap_flag:
+        elif bootstrap_flag and not cfg.get("project_number"):
             created = create_project(gh, owner, title)
             repository = get_repo(gh, owner, repo)
             link_project_to_repo(gh, created["id"], repository["id"])
             project = get_project_fields(gh, owner, created["number"])
             cfg["project_number"] = project["number"]
             cfg["project_url"] = project["url"]
+        elif cfg.get("project_number"):
+            project = get_project_fields(gh, owner, int(cfg["project_number"]))
         else:
             raise SystemExit(
-                f"Project '{title}' not found. Re-run with --bootstrap to create it."
+                f"Project '{title}' not found. Run scripts/bootstrap_github_project.sh first."
             )
 
     project_id = project["id"]
