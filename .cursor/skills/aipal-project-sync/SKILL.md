@@ -58,4 +58,4 @@ Script: [`scripts/sync_github_project.py`](../../scripts/sync_github_project.py)
 |---------|-----|
 | `No GitHub token` locally | `gh auth login` or export `GITHUB_TOKEN` |
 | Project empty after push | Check Actions → "Sync GitHub Project"; re-run with `workflow_dispatch` |
-| Permission denied in CI | Ensure workflow has `projects: write`; for user projects may need `PROJECT_SYNC_TOKEN` PAT in repo secrets |
+| Permission denied in CI | Repo Settings → Actions → General → Workflow permissions → **Read and write**; project is repository-owned (GITHUB_TOKEN works) |
