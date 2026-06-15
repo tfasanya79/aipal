@@ -18,6 +18,15 @@ Suggested labels (maintainer may apply): `voice`, `today`, `wake`, `crash`, `and
 
 ## For maintainers
 
+### Project sync (first-time setup)
+
+If the **Projects** tab is empty after pushing this repo:
+
+1. **GitHub → Settings → Actions → General → Workflow permissions** → choose **Read and write permissions** → Save.
+2. **Actions → Sync GitHub Project → Run workflow** (workflow_dispatch).
+3. Optional: add repo secret `PROJECT_SYNC_TOKEN` (PAT with `repo` + `project` scopes) if the default token is insufficient.
+4. Local alternative: `gh auth login` then `./scripts/sync-github-project.sh --bootstrap`.
+
 ### Product status (source of truth)
 
 Update [`docs/PRODUCT.md`](docs/PRODUCT.md) when a phase item ships or is deferred. Push to `main` — the **Sync GitHub Project** workflow updates Issues and the Project board automatically.

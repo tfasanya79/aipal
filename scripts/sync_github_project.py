@@ -82,7 +82,7 @@ class GitHubGraphQL:
 
 
 def resolve_token() -> str:
-    for key in ("GITHUB_TOKEN", "GH_TOKEN"):
+    for key in ("PROJECT_SYNC_TOKEN", "GITHUB_TOKEN", "GH_TOKEN"):
         val = os.environ.get(key)
         if val:
             return val
@@ -338,9 +338,9 @@ def ensure_labels(gh: GitHubGraphQL, repo_id: str) -> None:
                 """,
                 {"repoId": repo_id, "name": name, "color": color},
             )
-        except RuntimeError as exc:
-            if "already exists" not in str(exc).lower():
-                raise
+        except RuntimeError:
+            # Label may already exist or token lacks label scope — non-fatal.
+            pass
 
 
 def fetch_tracked_issues(gh: GitHubGraphQL, owner: str, repo: str) -> dict[str, dict]:
@@ -456,6 +456,16 @@ def find_project_item_id(issue: dict, project_number: int) -> str | None:
     return None
 
 
+def resolve_option_id(options: dict[str, str], value: str) -> str | None:
+    if value in options:
+        return options[value]
+    aliases = {"In progress": "In Progress"}
+    if value in aliases and aliases[value] in options:
+        return options[aliases[value]]
+    lower = {k.lower(): v for k, v in options.items()}
+    return lower.get(value.lower())
+
+
 def update_project_fields(
     gh: GitHubGraphQL,
     project_id: str,
@@ -474,7 +484,7 @@ def update_project_fields(
         field = fields.get(field_name)
         if not field:
             continue
-        option_id = field["options"].get(value)
+        option_id = resolve_option_id(field["options"], value)
         if not option_id:
             continue
         gh.query(
