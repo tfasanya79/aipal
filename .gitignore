@@ -15,3 +15,4 @@ android-signing.env
 apps/mobile/fastlane/report.xml
 *.json
 !**/package.json
+!.github/project.json
