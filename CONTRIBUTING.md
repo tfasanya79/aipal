@@ -6,7 +6,7 @@ Thank you for helping test and improve AiPal.
 
 1. **Install** — Play Internal opt-in link (from maintainer) or see [docs/releases/PLAY_INTERNAL_v2.md](docs/releases/PLAY_INTERNAL_v2.md).
 2. **Report bugs** — [GitHub Issues](https://github.com/tfasanya79/aipal/issues/new/choose) (use the bug report template).
-3. **Roadmap visibility** — [GitHub → Projects → AiPal Roadmap](https://github.com/tfasanya79/aipal/projects) (phase status synced from `docs/PRODUCT.md`).
+3. **Roadmap visibility** — [AiPal Roadmap board](https://github.com/users/tfasanya79/projects/24) (phase status synced from `docs/PRODUCT.md`).
 
 Include in every bug report:
 
@@ -18,14 +18,18 @@ Suggested labels (maintainer may apply): `voice`, `today`, `wake`, `crash`, `and
 
 ## For maintainers
 
-### Project sync (first-time setup)
+### Project sync
 
-If the **Projects** tab is empty after pushing this repo:
+Bootstrap is **complete**: the **AiPal Roadmap** board is live and [`.github/project.json`](.github/project.json) is committed sync config (field IDs + project URL).
+
+**First-time setup** (new fork or empty Projects tab):
 
 1. **GitHub → Settings → Secrets → Actions** → add `PROJECT_SYNC_TOKEN` (classic PAT with `repo` + `project` scopes).
 2. **GitHub → Settings → Actions → General → Workflow permissions** → choose **Read and write permissions** → Save.
 3. **Actions → Sync GitHub Project → Run workflow** (workflow_dispatch).
 4. Local alternative: `gh auth login` then `./scripts/sync-github-project.sh --bootstrap`.
+
+If the workflow commit step fails, ensure `.gitignore` includes `!.github/project.json` (the repo ignores `*.json` by default).
 
 ### Product status (source of truth)
 

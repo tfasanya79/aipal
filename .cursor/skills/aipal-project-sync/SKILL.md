@@ -59,3 +59,4 @@ Script: [`scripts/sync_github_project.py`](../../scripts/sync_github_project.py)
 | `No GitHub token` locally | `gh auth login` or export `GITHUB_TOKEN` / `PROJECT_SYNC_TOKEN` |
 | Project empty after push | Add repo secret `PROJECT_SYNC_TOKEN` (classic PAT: `repo` + `project` scopes); run **Sync GitHub Project** workflow |
 | Permission denied in CI | Repo Settings → Actions → **Read and write** workflow permissions; sync step uses `PROJECT_SYNC_TOKEN` (GITHUB_TOKEN cannot access Projects v2) |
+| Commit step fails (`git add project.json`) | Add `!.github/project.json` to `.gitignore` after `*.json` / `!**/package.json`; workflow uses `git add -f` as backup |
