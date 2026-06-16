@@ -105,6 +105,7 @@
 
 - [ ] Richer mem0 retrieval every turn
 - [ ] Calendar import
+- [ ] Compose message draft — user describes intent; AiPal drafts SMS/email for user review, edit, and manual send (no auto-send)
 
 ---
 

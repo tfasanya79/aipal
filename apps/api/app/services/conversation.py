@@ -42,10 +42,20 @@ async def load_history(
     return [{"role": t.role, "content": t.content} for t in turns]
 
 
-async def has_chatted_today(db: AsyncSession, user_id: uuid.UUID) -> bool:
-    from datetime import UTC, date, datetime
+async def has_chatted_today(
+    db: AsyncSession,
+    user_id: uuid.UUID,
+    timezone: str | None = None,
+) -> bool:
+    from datetime import UTC, datetime, time
+    from zoneinfo import ZoneInfo
 
-    start = datetime.combine(date.today(), datetime.min.time()).replace(tzinfo=UTC)
+    try:
+        tz = ZoneInfo(timezone or "UTC")
+    except Exception:
+        tz = ZoneInfo("UTC")
+    local_day = datetime.now(tz).date()
+    start = datetime.combine(local_day, time.min, tzinfo=tz).astimezone(UTC)
     result = await db.execute(
         select(ConversationTurn.id)
         .where(ConversationTurn.user_id == user_id, ConversationTurn.created_at >= start)

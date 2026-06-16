@@ -1,7 +1,7 @@
 # AiPal — Deliverables Tracker
 
-**Last audited:** 2026-06-09  
-**App version:** `2.4.0+18` ([`apps/mobile/pubspec.yaml`](../apps/mobile/pubspec.yaml))  
+**Last audited:** 2026-06-16  
+**App version:** `2.4.1+19` ([`apps/mobile/pubspec.yaml`](../apps/mobile/pubspec.yaml))  
 **Canonical phase detail:** [`PRODUCT.md`](PRODUCT.md)  
 **Application code:** this repository  
 **Extended docs hub (dev VM):** `/home/dev/docs` — architecture, backlog, `done/` snapshots (paths below)
@@ -212,6 +212,7 @@ Sources: [`done/ops-deploy-2026-06-09.md`](done/ops-deploy-2026-06-09.md), [`don
 | Current Play Internal build | **Done** | **2.4.0+18** — C2 background wake |
 | `deploy-android-internal.sh` / `deploy-android-apk-dev.sh` | **Done** | [`../scripts/`](../scripts/) |
 | Flutter web at `/app/` | **Done** | Text mode; voice native-only |
+| Stakeholder status page at `/status/` | **Done** | Password-protected; generated from this doc + ROADMAP on deploy |
 | APK sideload `/downloads/aipal-latest.apk` | **Done** | v1-decommission |
 | iOS TestFlight pipeline | **Not done** | Needs macOS; see [`releases/IOS_TESTFLIGHT.md`](releases/IOS_TESTFLIGHT.md) |
 | GitHub repo `tfasanya79/aipal` | **Done** | Private; initial push complete |

@@ -8,6 +8,7 @@ enum LiveState { resting, listening, thinking, speaking }
 
 class LiveSession {
   WebSocketChannel? _channel;
+  String? sessionId;
 
   LiveState state = LiveState.resting;
 
@@ -18,6 +19,9 @@ class LiveSession {
     _channel!.stream.listen((data) {
       final msg = jsonDecode(data as String) as Map<String, dynamic>;
       final t = msg['type'] as String?;
+      if (t == 'session_started') {
+        sessionId = msg['session_id'] as String?;
+      }
       if (t == 'state') {
         final s = msg['state'] as String?;
         if (s == 'thinking') state = LiveState.thinking;
@@ -41,6 +45,7 @@ class LiveSession {
     } catch (_) {}
     await _channel?.sink.close();
     _channel = null;
+    sessionId = null;
     state = LiveState.resting;
   }
 }

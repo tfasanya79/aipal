@@ -7,6 +7,23 @@ from ..llm_provider import llm_chat_json
 
 log = logging.getLogger("aipal.plan_extractor")
 
+_PLAN_SIGNAL = re.compile(
+    r"\b(remind|add|plan|schedule|meeting|tomorrow|swim|bed|gym|at\s+\d|\d{1,2}\s*(?:am|pm)|\d{1,2}:\d{2})\b",
+    re.IGNORECASE,
+)
+_COMPLETE_SIGNAL = re.compile(
+    r"\b(finished|completed|done with|already did|mark .+ done)\b",
+    re.IGNORECASE,
+)
+
+
+def needs_plan_extraction(text: str) -> bool:
+    """Skip the extra LLM call unless the utterance may involve planning or completion."""
+    t = text.strip()
+    if not t:
+        return False
+    return bool(_PLAN_SIGNAL.search(t) or _COMPLETE_SIGNAL.search(t))
+
 EXTRACT_PROMPT = """You extract daily plans from user messages. Return ONLY valid JSON:
 {
   "intent": "plan_day|check_in|complete_task|other",

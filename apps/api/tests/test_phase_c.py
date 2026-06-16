@@ -25,36 +25,13 @@ async def test_live_greeting_in_live_no_push_to_talk():
 
         with patch("app.routers.daily.conv_svc.has_chatted_today", new_callable=AsyncMock) as chatted:
             chatted.return_value = True
-            with patch("app.routers.daily.task_svc.today_view", new_callable=AsyncMock) as view:
-                from app.schemas import TaskResponse, TaskSummary, TodaySections, TodayViewResponse
-
-                view.return_value = TodayViewResponse(
-                    summary=TaskSummary(date="2026-06-11", total=1, done=0, open=1, deferred=0, streak_days=0),
-                    up_next=TaskResponse(
-                        id=1,
-                        title="Meeting",
-                        notes=None,
-                        due_at=None,
-                        priority=1,
-                        status="planned",
-                        source="text",
-                        parent_task_id=None,
-                        estimated_minutes=None,
-                        sort_order=0,
-                        category=None,
-                        created_at=_NOW,
-                        completed_at=None,
-                        subtasks=[],
-                    ),
-                    sections=TodaySections(now=[], upcoming=[], completed=[]),
-                )
-                r = await client.get("/api/v2/daily/live-greeting?in_live=true", headers=headers)
-                assert r.status_code == 200
-                text = r.json()["text"].lower()
-                assert "tap to talk" not in text
-                assert "press to talk" not in text
-                assert "hold to talk" not in text
-                assert "meeting" in text
+            r = await client.get("/api/v2/daily/live-greeting?in_live=true", headers=headers)
+            assert r.status_code == 200
+            text = r.json()["text"].lower()
+            assert "tap to talk" not in text
+            assert "press to talk" not in text
+            assert "hold to talk" not in text
+            assert "listening" in text
 
 
 @pytest.mark.asyncio

@@ -18,6 +18,14 @@
         file_server
     }
 
+    handle_path /status/* {
+        root * /var/www/aipal-status
+        basicauth /* {
+            {env.STATUS_AUTH_USER} {env.STATUS_AUTH_HASH}
+        }
+        file_server
+    }
+
     @root path /
     handle @root {
         redir * /app/ 302

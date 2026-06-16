@@ -7,6 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..models import Task
 from ..schemas import TaskCreate, TaskSummary, TodaySections, TodayViewResponse
+from ..timezone_util import user_local_today
 
 
 def _day_bounds(day: date) -> tuple[datetime, datetime]:
@@ -260,26 +261,78 @@ async def _completion_streak(db: AsyncSession, user_id: uuid.UUID) -> int:
     return streak
 
 
-async def apply_task_tools_from_text(db: AsyncSession, user_id: uuid.UUID, text: str) -> list[str]:
+async def apply_task_tools_from_text(
+    db: AsyncSession,
+    user_id: uuid.UUID,
+    text: str,
+    *,
+    timezone: str = "UTC",
+) -> list[str]:
     """Simple structured tool dispatch from user text."""
     actions: list[str] = []
     t = text.lower().strip()
+    day = user_local_today(timezone)
 
     if "what's left" in t or "what is left" in t or "open tasks" in t:
-        tasks = await list_tasks(db, user_id, day=date.today())
+        tasks = await list_tasks(db, user_id, day=day)
         open_tasks = [x for x in tasks if x.status in ("planned", "in_progress")]
         if open_tasks:
             actions.append("Open: " + ", ".join(x.title for x in open_tasks[:6]))
         else:
             actions.append("No open tasks for today")
 
-    if m := re.search(r"(?:mark|complete|done with)\s+(.+)", t):
-        needle = m.group(1).strip().lower()
-        tasks = await list_tasks(db, user_id, day=date.today())
+    completion_patterns = [
+        r"(?:mark|complete|done with)\s+(.+)",
+        r"(?:finished|completed)\s+(.+)",
+        r"already did\s+(.+)",
+    ]
+    for pattern in completion_patterns:
+        if m := re.search(pattern, t):
+            needle = m.group(1).strip().lower().rstrip(".")
+            tasks = await list_tasks(db, user_id, day=day)
+            for task in tasks:
+                if task.status in ("done", "skipped"):
+                    continue
+                title_lower = task.title.lower()
+                if needle in title_lower or title_lower in needle:
+                    await update_task(db, user_id, task.id, status="done")
+                    actions.append(f"Completed: {task.title}")
+                    break
+            if actions:
+                break
+
+    return actions
+
+
+def _title_matches(task_title: str, needle: str) -> bool:
+    tl = task_title.lower().strip()
+    nl = needle.lower().strip()
+    if nl in tl or tl in nl:
+        return True
+    tw = set(tl.split())
+    nw = set(nl.split())
+    return len(tw & nw) >= 1 and len(tw & nw) >= min(len(tw), len(nw), 1)
+
+
+async def complete_tasks_from_extraction(
+    db: AsyncSession,
+    user_id: uuid.UUID,
+    extracted: dict,
+    day: date,
+) -> list[str]:
+    """Mark tasks done when plan extractor returns complete_task intent."""
+    actions: list[str] = []
+    titles = [str(t.get("title", "")).strip() for t in extracted.get("proposed_tasks") or []]
+    titles = [t for t in titles if t]
+    if not titles:
+        return actions
+    tasks = await list_tasks(db, user_id, day=day)
+    for title in titles:
         for task in tasks:
-            if needle in task.title.lower():
+            if task.status in ("done", "skipped"):
+                continue
+            if _title_matches(task.title, title):
                 await update_task(db, user_id, task.id, status="done")
                 actions.append(f"Completed: {task.title}")
                 break
-
     return actions

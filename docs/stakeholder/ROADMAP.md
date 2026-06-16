@@ -44,7 +44,8 @@
 5. **Focus companion** — Timer + "2 min left" nudge + auto-complete offer.
 6. **End-of-day closure** — Evening recap closes loops and drafts tomorrow.
 7. **Explainable nudges** — User can see why AiPal spoke up.
-8. **Privacy story** — On-device wake word; cloud LLM with clear consent.
+8. **Compose-and-send drafts** — User describes a message; AiPal drafts SMS/email for review, edit, and manual copy/send (no auto-send).
+9. **Privacy story** — On-device wake word; cloud LLM with clear consent.
 
 ---
 

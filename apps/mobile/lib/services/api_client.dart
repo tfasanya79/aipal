@@ -198,9 +198,16 @@ class ApiClient {
     return jsonDecode(r.body) as Map<String, dynamic>;
   }
 
-  Future<Map<String, dynamic>> audioTurn(List<int> bytes, {String filename = 'turn.m4a'}) async {
+  Future<Map<String, dynamic>> audioTurn(
+    List<int> bytes, {
+    String filename = 'turn.m4a',
+    String? sessionId,
+  }) async {
     final req = http.MultipartRequest('POST', Uri.parse('${AppConfig.apiBase}/turn/audio'));
     if (token != null) req.headers['Authorization'] = 'Bearer $token';
+    if (sessionId != null && sessionId.isNotEmpty) {
+      req.fields['session_id'] = sessionId;
+    }
     req.files.add(http.MultipartFile.fromBytes('file', bytes, filename: filename));
     final streamed = await req.send();
     final body = await streamed.stream.bytesToString();

@@ -25,6 +25,7 @@ source "$SIGNING_ENV"
 command -v flutter >/dev/null || die "Flutter SDK not on PATH"
 
 chmod +x "$ROOT/scripts/check-brand-copy.sh" "$ROOT/scripts/generate_aipal_icons.py" 2>/dev/null || true
+chmod +x "$ROOT/scripts/build-status-page.sh" "$ROOT/scripts/setup-status-auth.sh" 2>/dev/null || true
 "$ROOT/scripts/check-brand-copy.sh"
 if [[ -f "$ROOT/apps/api/.venv/bin/python" ]]; then
   "$ROOT/apps/api/.venv/bin/python" -m pytest "$ROOT/apps/api/tests/" -q || die "pytest failed"
@@ -34,6 +35,11 @@ fi
 chmod +x "$ROOT/scripts/smoke-test.sh"
 "$ROOT/scripts/smoke-test.sh" || die "smoke-test failed (is aipal-v2.service running?)"
 python3 "$ROOT/scripts/generate_aipal_icons.py"
+"$ROOT/scripts/build-status-page.sh"
+STATUS_ROOT="/var/www/aipal-status"
+sudo mkdir -p "$STATUS_ROOT"
+sudo cp "$ROOT/infra/status/out/index.html" "$STATUS_ROOT/index.html"
+"$ROOT/scripts/setup-status-auth.sh" || true
 
 cd "$MOBILE"
 flutter pub get
@@ -66,7 +72,13 @@ sudo chown -R www-data:www-data "$WEB_ROOT" 2>/dev/null || sudo chown -R caddy:c
 
 CADDYFILE="$ROOT/infra/caddy/Caddyfile"
 if [[ -f "$CADDYFILE" ]] && command -v caddy >/dev/null; then
-  sudo cp "$CADDYFILE" /etc/caddy/Caddyfile 2>/dev/null && sudo systemctl reload caddy 2>/dev/null || true
+  sudo cp "$CADDYFILE" /etc/caddy/Caddyfile 2>/dev/null || true
+  if [[ -f /etc/caddy/status-auth.env ]]; then
+    sudo systemctl daemon-reload 2>/dev/null || true
+    sudo systemctl restart caddy 2>/dev/null || sudo systemctl reload caddy 2>/dev/null || true
+  else
+    sudo systemctl reload caddy 2>/dev/null || true
+  fi
 fi
 
 if [[ "$UPLOAD_PLAY" == "1" ]]; then
@@ -84,6 +96,9 @@ echo "  https://43.160.220.9.sslip.io/downloads/aipal-latest.apk"
 echo ""
 echo "Web app:"
 echo "  https://43.160.220.9.sslip.io/app/"
+echo ""
+echo "Stakeholder status (password in .secrets/status-page-credentials.txt):"
+echo "  https://43.160.220.9.sslip.io/status/"
 echo ""
 echo "If install fails: uninstall Play Store AiPal first (signature conflict)."
 if [[ "$UPLOAD_PLAY" != "1" ]]; then

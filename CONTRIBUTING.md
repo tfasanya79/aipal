@@ -49,7 +49,16 @@ See [`.cursor/skills/aipal-release/SKILL.md`](.cursor/skills/aipal-release/SKILL
 ### Secrets (never commit)
 
 - `apps/api/.env` — copy from `apps/api/.env.example`
-- `.secrets/` — signing keys, Play API JSON (deploy VM only)
+- `.secrets/` — signing keys, Play API JSON, status page credentials (deploy VM only)
+
+### Stakeholder status page
+
+Password-protected dashboard for non-GitHub stakeholders:
+
+- **URL:** `https://43.160.220.9.sslip.io/status/`
+- **Generate:** `scripts/build-status-page.sh` (runs automatically in `deploy-all.sh`)
+- **First-time auth:** `scripts/setup-status-auth.sh` → writes `/etc/caddy/status-auth.env` and `.secrets/status-page-credentials.txt`
+- **Rotate password:** delete both files above and re-run `setup-status-auth.sh`, then `sudo systemctl restart caddy`
 
 ## CI
 

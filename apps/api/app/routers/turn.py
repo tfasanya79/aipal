@@ -8,7 +8,7 @@ import time
 import uuid
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, File, UploadFile
+from fastapi import APIRouter, Depends, File, Form, UploadFile
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..auth import get_current_user
@@ -30,6 +30,8 @@ from ..tts import synthesize
 router = APIRouter(tags=["turn"])
 log = logging.getLogger("aipal.turn")
 DEBUG_LOG = "/home/dev/.cursor/debug-60ce92.log"
+
+_EMPTY_PLAN = {"intent": "other", "proposed_tasks": [], "clarifying_question": None}
 
 
 def _agent_debug(hypothesis_id: str, location: str, message: str, data: dict, run_id: str = "pre-fix") -> None:
@@ -59,62 +61,31 @@ def _draft_to_schema(payload: dict | None) -> PlanDraftResponse | None:
     )
 
 
-async def _reply_for_text(
-    db: AsyncSession,
-    user: User,
-    text: str,
-    session_id: str | None = None,
-) -> tuple[str, bool, list[str], str, PlanDraftResponse | None]:
-    sid = session_id or str(uuid.uuid4())
-    if is_crisis_likely(text):
-        return crisis_reply(), True, [], sid, None
+def _draft_mentioned_in_history(history: list[dict[str, str]]) -> bool:
+    for h in history:
+        if h["role"] != "assistant":
+            continue
+        lower = h["content"].lower()
+        if "plan draft" in lower or "plan waiting" in lower:
+            return True
+        if "add" in lower and "today" in lower and ("want" in lower or "shall" in lower):
+            return True
+    return False
 
-    history = await conv_svc.load_history(db, user.id, sid)
-    history_summary = "\n".join(f"{h['role']}: {h['content'][:200]}" for h in history[-6:])
-    local_day = user_local_today(user.timezone)
 
-    pending_early = await draft_svc.get_draft(db, user.id)
-    if pending_early and pending_early.get("proposed_tasks"):
-        if plan_intent.is_confirm_intent(text):
-            created = await draft_svc.confirm_draft(
-                db, user.id, timezone=user.timezone or "UTC"
-            )
-            names = ", ".join(c["title"] for c in created) if created else "your plan"
-            reply = (
-                f"Done — I've added {names} to Today."
-                if created
-                else "Those items are already on Today — nothing new to add."
-            )
-            await conv_svc.append_turn(db, user.id, sid, "user", text)
-            await conv_svc.append_turn(db, user.id, sid, "assistant", reply)
-            return reply, False, [f"Confirmed plan: {names}"], sid, None
-        if plan_intent.is_discard_intent(text):
-            await draft_svc.clear_draft(db, user.id)
-            reply = "Okay, I won't add that plan to Today."
-            await conv_svc.append_turn(db, user.id, sid, "user", text)
-            await conv_svc.append_turn(db, user.id, sid, "assistant", reply)
-            return reply, False, ["Discarded plan draft"], sid, None
-
-    tool_actions = await task_svc.apply_task_tools_from_text(db, user.id, text)
-
-    extracted = await plan_extractor.extract_plan(
-        text,
-        wake_name=user.wake_name or user.display_name or "friend",
-        timezone=user.timezone or "UTC",
-        history_summary=history_summary,
-        today=local_day,
-    )
-    plan_draft_payload = None
-    if extracted.get("proposed_tasks"):
-        await draft_svc.save_draft(db, user.id, extracted)
-        plan_draft_payload = extracted
-
-    pending = await draft_svc.get_draft(db, user.id)
-    today_snap = await task_svc.today_view(db, user.id, local_day)
-    memories = memory_search(str(user.id), text)
-    mem_block = "\n".join(f"- {m}" for m in memories) if memories else ""
-    wake = user.wake_name or user.display_name or "friend"
-    system_ctx = f"User wake name: {wake}. About: {user.about_me or ''}"
+def _build_system_ctx(
+    *,
+    wake: str,
+    about_me: str | None,
+    local_day,
+    today_snap,
+    mem_block: str,
+    tool_actions: list[str],
+    pending: dict | None,
+    extracted: dict,
+    history: list[dict[str, str]],
+) -> str:
+    system_ctx = f"User wake name: {wake}. About: {about_me or ''}"
     open_count = today_snap.summary.open
     if today_snap.up_next:
         system_ctx += (
@@ -127,26 +98,113 @@ async def _reply_for_text(
         system_ctx += f"\nMemories:\n{mem_block}"
     if tool_actions:
         system_ctx += f"\nTool results: {'; '.join(tool_actions)}"
-    if pending and pending.get("proposed_tasks"):
+    if pending and pending.get("proposed_tasks") and not _draft_mentioned_in_history(history):
         tasks_desc = "; ".join(
             f"{t['title']}" + (f" at {t['due_at']}" if t.get("due_at") else "")
             for t in pending["proposed_tasks"]
         )
-        system_ctx += f"\nPending plan draft (awaiting user confirm): {tasks_desc}. Ask if they want these added to Today."
+        system_ctx += (
+            f"\nPending plan draft (awaiting user confirm): {tasks_desc}. "
+            "Mention once if helpful; do not repeat if user already declined or confirmed."
+        )
     if extracted.get("clarifying_question"):
         system_ctx += f"\nClarify: {extracted['clarifying_question']}"
+    return system_ctx
+
+
+async def _reply_for_text(
+    db: AsyncSession,
+    user: User,
+    text: str,
+    session_id: str | None = None,
+) -> tuple[str, bool, list[str], str, PlanDraftResponse | None]:
+    sid = session_id or str(uuid.uuid4())
+    if is_crisis_likely(text):
+        return crisis_reply(), True, [], sid, None
+
+    local_day = user_local_today(user.timezone)
+    tz = user.timezone or "UTC"
+
+    history, pending_early = await asyncio.gather(
+        conv_svc.load_history(db, user.id, sid),
+        draft_svc.get_draft(db, user.id),
+    )
+    history_summary = "\n".join(f"{h['role']}: {h['content'][:200]}" for h in history[-6:])
+
+    if pending_early and pending_early.get("proposed_tasks"):
+        if plan_intent.is_confirm_intent(text):
+            created = await draft_svc.confirm_draft(db, user.id, timezone=tz)
+            if created:
+                names = ", ".join(c["title"] for c in created)
+                reply = f"Done — I've added {names} to Today."
+                tool_msg = f"Confirmed plan: {names}"
+            else:
+                reply = "Got it — those are already on Today."
+                tool_msg = "Confirmed plan: duplicates skipped"
+            await conv_svc.append_turn(db, user.id, sid, "user", text)
+            await conv_svc.append_turn(db, user.id, sid, "assistant", reply)
+            return reply, False, [tool_msg], sid, None
+        if plan_intent.is_discard_intent(text):
+            await draft_svc.clear_draft(db, user.id)
+            reply = "Okay, I won't add that plan to Today."
+            await conv_svc.append_turn(db, user.id, sid, "user", text)
+            await conv_svc.append_turn(db, user.id, sid, "assistant", reply)
+            return reply, False, ["Discarded plan draft"], sid, None
+
+    tool_actions, today_snap = await asyncio.gather(
+        task_svc.apply_task_tools_from_text(db, user.id, text, timezone=tz),
+        task_svc.today_view(db, user.id, local_day),
+    )
+    memories = memory_search(str(user.id), text)
+    mem_block = "\n".join(f"- {m}" for m in memories) if memories else ""
+
+    if plan_extractor.needs_plan_extraction(text):
+        extracted = await plan_extractor.extract_plan(
+            text,
+            wake_name=user.wake_name or user.display_name or "friend",
+            timezone=tz,
+            history_summary=history_summary,
+            today=local_day,
+        )
+    else:
+        extracted = dict(_EMPTY_PLAN)
+
+    if extracted.get("intent") == "complete_task":
+        completion_actions = await task_svc.complete_tasks_from_extraction(
+            db, user.id, extracted, local_day
+        )
+        tool_actions.extend(completion_actions)
+        if completion_actions:
+            today_snap = await task_svc.today_view(db, user.id, local_day)
+
+    plan_draft_payload = None
+    if extracted.get("proposed_tasks") and extracted.get("intent") != "complete_task":
+        await draft_svc.save_draft(db, user.id, extracted)
+        plan_draft_payload = extracted
+
+    pending = await draft_svc.get_draft(db, user.id)
+    wake = user.wake_name or user.display_name or "friend"
+    system_ctx = _build_system_ctx(
+        wake=wake,
+        about_me=user.about_me,
+        local_day=local_day,
+        today_snap=today_snap,
+        mem_block=mem_block,
+        tool_actions=tool_actions,
+        pending=pending,
+        extracted=extracted,
+        history=history,
+    )
 
     messages = list(history)
-    if not messages:
-        messages.append({"role": "user", "content": f"[Context: {system_ctx}]\n\n{text}"})
-    else:
-        messages.append({"role": "user", "content": text})
+    prefix = "[Context" if not messages else "[State"
+    messages.append({"role": "user", "content": f"{prefix}: {system_ctx}]\n\n{text}"})
 
     reply = await llm_chat(messages)
     await conv_svc.append_turn(db, user.id, sid, "user", text)
     await conv_svc.append_turn(db, user.id, sid, "assistant", reply)
-    memory_add(str(user.id), f"User said: {text}")
-    memory_add(str(user.id), f"AiPal replied: {reply}")
+    asyncio.create_task(asyncio.to_thread(memory_add, str(user.id), f"User said: {text}"))
+    asyncio.create_task(asyncio.to_thread(memory_add, str(user.id), f"AiPal replied: {reply}"))
 
     return reply, False, tool_actions, sid, _draft_to_schema(plan_draft_payload or pending)
 
@@ -170,6 +228,7 @@ async def text_turn(
 @router.post("/turn/audio", response_model=AudioTurnResponse)
 async def audio_turn(
     file: UploadFile = File(...),
+    session_id: str | None = Form(None),
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
@@ -179,6 +238,7 @@ async def audio_turn(
         return AudioTurnResponse(
             transcript="",
             reply="I did not receive any audio. Stay in Live mode and speak naturally.",
+            session_id=session_id,
         )
 
     suffix = Path(file.filename or "turn.m4a").suffix.lower() or ".m4a"
@@ -194,9 +254,12 @@ async def audio_turn(
         return AudioTurnResponse(
             transcript="",
             reply="I did not catch that clearly. Try one short sentence near the microphone.",
+            session_id=session_id,
         )
 
-    reply, crisis, tool_actions, _, draft = await _reply_for_text(db, user, transcript.strip())
+    reply, crisis, tool_actions, sid, draft = await _reply_for_text(
+        db, user, transcript.strip(), session_id
+    )
     draft_confirmed = bool(
         tool_actions and any(a.startswith("Confirmed plan:") for a in tool_actions)
     )
@@ -208,6 +271,7 @@ async def audio_turn(
         tool_actions=tool_actions,
         plan_draft=draft,
         draft_confirmed=draft_confirmed,
+        session_id=sid,
         audio_base64=base64.b64encode(audio_bytes).decode("ascii") if audio_bytes else None,
         audio_mime=audio_mime if audio_bytes else None,
     )

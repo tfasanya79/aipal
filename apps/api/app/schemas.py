@@ -161,6 +161,7 @@ class AudioTurnResponse(BaseModel):
     reply: str
     crisis: bool = False
     tool_actions: list[str] = Field(default_factory=list)
+    session_id: str | None = None
     plan_draft: PlanDraftResponse | None = None
     draft_confirmed: bool = False
     audio_base64: str | None = None

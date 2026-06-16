@@ -9,17 +9,21 @@ class LiveVoiceLoop {
     required this.onSegment,
     this.onSpeechStart,
     this.shouldSuppress,
-    this.silenceMs = 1200,
+    this.isSpeakingForVad,
+    this.silenceMs = 800,
     this.maxSegmentMs = 10000,
     this.thresholdDb = -35.0,
+    this.thresholdDbSpeaking = -25.0,
   });
 
   final Future<void> Function(List<int> bytes) onSegment;
   final void Function()? onSpeechStart;
   final bool Function()? shouldSuppress;
+  final bool Function()? isSpeakingForVad;
   final int silenceMs;
   final int maxSegmentMs;
   final double thresholdDb;
+  final double thresholdDbSpeaking;
 
   static const _tickMs = 120;
 
@@ -29,7 +33,7 @@ class LiveVoiceLoop {
   bool _inSegment = false;
   int _silenceAccumMs = 0;
   int _segmentStartedAt = 0;
-  int _dynamicSilenceMs = 1200;
+  int _dynamicSilenceMs = 800;
   String? _currentPath;
   bool _processingSegment = false;
 
@@ -105,7 +109,8 @@ class LiveVoiceLoop {
     }
 
     final amp = await _recorder.getAmplitude();
-    final speaking = amp.current > thresholdDb;
+    final threshold = (isSpeakingForVad?.call() ?? false) ? thresholdDbSpeaking : thresholdDb;
+    final speaking = amp.current > threshold;
 
     if (speaking) {
       _silenceAccumMs = 0;
@@ -139,7 +144,7 @@ class LiveVoiceLoop {
     _currentPath = null;
 
     final elapsed = DateTime.now().millisecondsSinceEpoch - _segmentStartedAt;
-    _dynamicSilenceMs = (elapsed * 0.25).round().clamp(950, 1700);
+    _dynamicSilenceMs = (elapsed * 0.25).round().clamp(700, 1700);
 
     if (blobUrl != null && blobUrl.isNotEmpty) {
       try {

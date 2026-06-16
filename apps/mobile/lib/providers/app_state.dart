@@ -41,6 +41,7 @@ class AppState extends ChangeNotifier {
   bool loading = false;
   bool _speaking = false;
   bool _processingTurn = false;
+  int _turnGeneration = 0;
   WakeWordService? _wakeWord;
   bool wakeWordEnabled = false;
   bool wakeWordListening = false;
@@ -383,7 +384,9 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
-  bool _shouldSuppressLiveVad() => _speaking || _processingTurn;
+  bool _shouldSuppressLiveVad() => _processingTurn;
+
+  bool _isSpeakingForVad() => _speaking;
 
   bool _shouldSuppressWake() =>
       _speaking || _processingTurn || liveSession.isActive;
@@ -394,8 +397,17 @@ class AppState extends ChangeNotifier {
       final loop = LiveVoiceLoop(
         onSegment: _handleVoiceSegment,
         shouldSuppress: _shouldSuppressLiveVad,
+        isSpeakingForVad: _isSpeakingForVad,
         onSpeechStart: () {
-          if (_speaking) unawaited(_player.stop());
+          if (_speaking) {
+            _turnGeneration++;
+            _speaking = false;
+            if (liveSession.isActive) {
+              liveSession.state = LiveState.listening;
+            }
+            unawaited(_player.stop());
+            notifyListeners();
+          }
         },
       );
       try {
@@ -412,7 +424,7 @@ class AppState extends ChangeNotifier {
         });
         _voiceLoop = loop;
         await loop.start();
-        await _playLiveGreeting();
+        unawaited(_playLiveGreeting());
       } catch (e) {
         lastReply = e.toString();
         await _stopVoiceLoop();
@@ -421,6 +433,7 @@ class AppState extends ChangeNotifier {
     } else {
       await _stopVoiceLoop();
       await liveSession.stop();
+      _turnGeneration++;
     }
     await syncWakeListener();
     notifyListeners();
@@ -458,26 +471,43 @@ class AppState extends ChangeNotifier {
 
   Future<void> _handleVoiceSegment(List<int> bytes) async {
     if (token == null || _processingTurn) return;
+    final turnGen = ++_turnGeneration;
     _processingTurn = true;
     liveSession.state = LiveState.thinking;
     notifyListeners();
+    var shouldRefreshToday = false;
     try {
       const filename = 'turn.webm';
-      final res = await api.audioTurn(bytes, filename: kIsWeb ? filename : 'turn.m4a');
+      final res = await api.audioTurn(
+        bytes,
+        filename: kIsWeb ? filename : 'turn.m4a',
+        sessionId: liveSession.sessionId,
+      );
+      if (turnGen != _turnGeneration) return;
+      final returnedSid = res['session_id'] as String?;
+      if (returnedSid != null && (liveSession.sessionId == null || liveSession.sessionId!.isEmpty)) {
+        liveSession.sessionId = returnedSid;
+      }
       lastTranscript = res['transcript'] as String?;
       lastReply = res['reply'] as String?;
       if (res['draft_confirmed'] == true) {
         pendingPlanDraft = null;
+        shouldRefreshToday = true;
       } else {
         pendingPlanDraft = res['plan_draft'] as Map<String, dynamic>?;
         if (pendingPlanDraft == null) {
           await loadPlanDraft();
         }
+        if (res['tool_actions'] is List && (res['tool_actions'] as List).isNotEmpty) {
+          shouldRefreshToday = true;
+        }
       }
-      await _playAudioResponse(res);
-      await refreshTodayView();
+      if (turnGen != _turnGeneration) return;
+      await _playAudioResponse(res, turnGen: turnGen);
     } catch (e) {
-      lastReply = 'Voice turn failed: $e';
+      if (turnGen == _turnGeneration) {
+        lastReply = 'Voice turn failed: $e';
+      }
     } finally {
       _processingTurn = false;
       if (liveSession.isActive) {
@@ -485,13 +515,17 @@ class AppState extends ChangeNotifier {
       }
       await syncWakeListener();
       notifyListeners();
+      if (shouldRefreshToday) {
+        unawaited(refreshTodayView());
+      }
     }
   }
 
-  Future<void> _playAudioResponse(Map<String, dynamic> res) async {
+  Future<void> _playAudioResponse(Map<String, dynamic> res, {int? turnGen}) async {
     final audioB64 = res['audio_base64'] as String?;
     final mime = res['audio_mime'] as String? ?? 'audio/mpeg';
     if (audioB64 == null || audioB64.isEmpty) return;
+    if (turnGen != null && turnGen != _turnGeneration) return;
     _speaking = true;
     liveSession.state = LiveState.speaking;
     notifyListeners();
@@ -503,6 +537,7 @@ class AppState extends ChangeNotifier {
     });
     await _player.play(BytesSource(base64Decode(audioB64), mimeType: mime));
     await completer.future.timeout(const Duration(minutes: 2), onTimeout: () {});
+    if (turnGen != null && turnGen != _turnGeneration) return;
     _speaking = false;
     if (liveSession.isActive) {
       liveSession.state = LiveState.listening;

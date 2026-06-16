@@ -78,7 +78,12 @@ async def live_greeting(
     name = user.wake_name or user.display_name or "friend"
     wake_hint = _WAKE_HINT if wake_enabled and show_wake_intro else None
     local_day = user_local_today(user.timezone)
-    if await conv_svc.has_chatted_today(db, user.id):
+    if await conv_svc.has_chatted_today(db, user.id, user.timezone):
+        if in_live:
+            text = f"I'm listening, {name}."
+            if wake_hint:
+                text = f"{wake_hint} {text}"
+            return GreetingResponse(text=text, wake_word_hint=wake_hint)
         draft = await draft_svc.get_draft(db, user.id)
         if draft and draft.get("proposed_tasks"):
             items = ", ".join(t["title"] for t in draft["proposed_tasks"][:3])
