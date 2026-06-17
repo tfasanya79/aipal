@@ -140,6 +140,9 @@ async def _run_turn_pipeline(
             await websocket.send_json({"type": "turn_cancelled", "turn_id": turn_id})
             await _send_state(websocket, "listening")
             raise
+        except Exception:
+            log.exception("live_turn_pipeline_failed turn=%s", turn_id)
+            raise
 
     task = asyncio.create_task(_pipeline())
     cancel_registry.register(turn_id, task)

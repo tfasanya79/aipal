@@ -15,7 +15,7 @@ description: >-
 2. **API tests** — `cd apps/api && python3 -m pytest tests/ -q` (or `.venv/bin/python -m pytest`)
 3. **Smoke** — `scripts/smoke-test.sh` (requires `aipal-v2.service` on `:8102`)
 4. **Flutter tests** — `cd apps/mobile && flutter test`
-5. **Bump version** (if shipping) — `apps/mobile/pubspec.yaml` e.g. `2.1.1+12`
+5. **Bump version** (if shipping) — `apps/mobile/pubspec.yaml` e.g. `2.4.3+21`
 
 ## API deploy (server)
 

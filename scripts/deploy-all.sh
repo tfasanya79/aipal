@@ -32,6 +32,27 @@ if [[ -f "$ROOT/apps/api/.venv/bin/python" ]]; then
 elif command -v python3 >/dev/null; then
   (cd "$ROOT/apps/api" && python3 -m pytest tests/ -q) || die "pytest failed"
 fi
+
+# Deploy the API to the production path and restart the service BEFORE smoke
+# testing, so smoke validates the freshly deployed server (not stale code).
+# Without this, mobile/web ship while the API silently stays on old code.
+API_DEPLOY_PATH="${API_DEPLOY_PATH:-/opt/aipal-v2}"
+API_SERVICE="${API_SERVICE:-aipal-v2.service}"
+SKIP_API_DEPLOY="${SKIP_API_DEPLOY:-0}"
+if [[ "$SKIP_API_DEPLOY" != "1" && -d "$API_DEPLOY_PATH" ]]; then
+  echo "Deploying API to $API_DEPLOY_PATH and restarting $API_SERVICE..."
+  sudo rsync -a --delete \
+    --exclude=.venv --exclude=__pycache__ --exclude='.env' \
+    "$ROOT/apps/api/" "$API_DEPLOY_PATH/apps/api/" || die "API rsync failed"
+  sudo systemctl restart "$API_SERVICE" || die "API service restart failed"
+  for _i in $(seq 1 20); do
+    curl -sf "http://127.0.0.1:8102/api/v2/health" -o /dev/null && break
+    sleep 0.5
+    [[ "$_i" == "20" ]] && die "API health check failed after restart"
+  done
+  echo "API deployed and healthy."
+fi
+
 chmod +x "$ROOT/scripts/smoke-test.sh"
 "$ROOT/scripts/smoke-test.sh" || die "smoke-test failed (is aipal-v2.service running?)"
 python3 "$ROOT/scripts/generate_aipal_icons.py"

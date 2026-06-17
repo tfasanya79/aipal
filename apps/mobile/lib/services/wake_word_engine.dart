@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:developer' as developer;
 import 'dart:typed_data';
 
 import 'package:open_wake_word/open_wake_word.dart';
@@ -18,6 +19,9 @@ class WakeWordEngine {
   static const wakePhrase = 'Hi Pal';
   static const pollMs = 100;
   static const activationThreshold = 0.5;
+
+  /// Last init failure message (for FGS → main isolate reporting).
+  static String? lastInitError;
 
   final AudioRecorder _recorder = AudioRecorder();
   StreamSubscription<Uint8List>? _audioSub;
@@ -43,15 +47,23 @@ class WakeWordEngine {
 
   Future<bool> init() async {
     if (_initialized) return true;
+    lastInitError = null;
     try {
       final ok = await OpenWakeWord.init(
         melModelAssetPath: 'assets/models/melspectrogram.onnx',
         embModelAssetPath: 'assets/models/embedding_model.onnx',
         wwModelAssetPaths: const ['assets/models/hi_pal_v0.1.onnx'],
       );
-      _initialized = ok;
-      return ok;
-    } catch (_) {
+      if (!ok) {
+        lastInitError = 'OpenWakeWord.init returned false';
+        developer.log('WakeWordEngine: $lastInitError', name: 'aipal.wake');
+        return false;
+      }
+      _initialized = true;
+      return true;
+    } catch (e, st) {
+      lastInitError = e.toString();
+      developer.log('WakeWordEngine init failed', name: 'aipal.wake', error: e, stackTrace: st);
       return false;
     }
   }

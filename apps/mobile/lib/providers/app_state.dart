@@ -49,6 +49,8 @@ class AppState extends ChangeNotifier {
   WakeWordService? _wakeWord;
   bool wakeWordEnabled = false;
   bool wakeWordListening = false;
+  bool wakeWordEngineReady = false;
+  String? wakeWordError;
   bool wakeWordAvailable = !kIsWeb;
   final List<Timer> _nudgeTimers = [];
 
@@ -153,18 +155,34 @@ class AppState extends ChangeNotifier {
     if (!wakeWordEnabled) {
       await WakeBackgroundService.stop();
       wakeWordListening = false;
+      wakeWordEngineReady = false;
+      wakeWordError = null;
       notifyListeners();
       return;
     }
 
     final suppressed =
         liveSession.state != LiveState.resting || _shouldSuppressWake();
+    final wasRunning = await WakeBackgroundService.isRunning();
     final running = await WakeBackgroundService.ensureRunning();
-    if (running) {
-      WakeBackgroundService.setSuppressed(suppressed);
-      wakeWordListening = !suppressed;
-    } else {
+    if (!running) {
       wakeWordListening = false;
+      wakeWordEngineReady = false;
+      wakeWordError =
+          'Could not start listening (grant microphone and notification permissions)';
+      notifyListeners();
+      return;
+    }
+
+    WakeBackgroundService.setSuppressed(suppressed);
+    if (wasRunning) {
+      wakeWordEngineReady = true;
+      wakeWordListening = !suppressed;
+      wakeWordError = null;
+    } else {
+      wakeWordEngineReady = false;
+      wakeWordListening = false;
+      wakeWordError = 'Starting wake word engine…';
     }
     notifyListeners();
   }
@@ -182,11 +200,33 @@ class AppState extends ChangeNotifier {
       await WakeBackgroundService.stop();
     }
     wakeWordListening = false;
+    wakeWordEngineReady = false;
+    wakeWordError = null;
   }
 
   void _onBackgroundWakeData(Object data) {
-    if (data is Map && data['event'] == 'wake') {
+    if (data is! Map) return;
+    final event = data['event'];
+    if (event == 'wake') {
       unawaited(handleBackgroundWake());
+      return;
+    }
+    if (event == 'engine_ready') {
+      wakeWordEngineReady = true;
+      wakeWordError = null;
+      if (wakeWordEnabled) {
+        final suppressed =
+            liveSession.state != LiveState.resting || _shouldSuppressWake();
+        wakeWordListening = !suppressed;
+      }
+      notifyListeners();
+      return;
+    }
+    if (event == 'engine_failed') {
+      wakeWordEngineReady = false;
+      wakeWordListening = false;
+      wakeWordError = data['error']?.toString() ?? 'Wake word engine failed to start';
+      notifyListeners();
     }
   }
 
@@ -574,7 +614,12 @@ class AppState extends ChangeNotifier {
       lastReply = text;
       notifyListeners();
       if (useWsPath && (_liveVoiceV2?.isActive ?? false)) {
-        _liveVoiceV2!.sendTextTurn(text);
+        final tts = await api.tts(text);
+        final b64 = tts['audio_base64'] as String?;
+        final mime = tts['audio_mime'] as String? ?? 'audio/mpeg';
+        if (b64 != null && b64.isNotEmpty) {
+          await _liveVoiceV2!.playGreeting(base64Decode(b64), mime);
+        }
         await syncWakeListener();
         return;
       }
@@ -673,16 +718,9 @@ class AppState extends ChangeNotifier {
   }
 
   Future<Map<String, dynamic>> sendTextTurn(String text, {String? sessionId}) async {
-    if (_liveVoiceV2?.isActive ?? false) {
-      _liveVoiceV2!.sendTextTurn(text);
-      liveSession.state = LiveState.thinking;
-      notifyListeners();
-      return {'reply': text};
-    }
-    if (liveSession.isActive) {
-      liveSession.sendText(text);
-      return {'reply': text};
-    }
+    // Text mode is a dedicated REST chat surface; it must always get a real
+    // assistant reply from the server and never echo the user's own input,
+    // regardless of whether a Live voice session is open.
     final res = await api.textTurn(text, sessionId: sessionId);
     lastReply = res['reply'] as String?;
     pendingPlanDraft = res['plan_draft'] as Map<String, dynamic>?;

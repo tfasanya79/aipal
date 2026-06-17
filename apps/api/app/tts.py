@@ -61,26 +61,7 @@ async def synthesize(text: str, voice: str | None = None) -> tuple[bytes, str]:
 
 
 async def synthesize_stream(text: str, voice: str | None = None):
-    """Async generator yielding (audio_bytes, mime) as edge-tts chunks arrive."""
-    text = (text or "").strip()
-    if not text:
-        return
-    chosen = voice or DEFAULT_VOICE
-    try:
-        import edge_tts
-
-        communicate = edge_tts.Communicate(text, chosen)
-        yielded_any = False
-        async for chunk in communicate.stream():
-            if chunk.get("type") == "audio":
-                data = chunk.get("data")
-                if data:
-                    yielded_any = True
-                    yield data, "audio/mpeg"
-        if yielded_any:
-            return
-    except Exception as e:
-        log.warning("edge-tts stream failed: %s; trying batch synthesize", e)
+    """Yield one complete decodable audio clip per sentence (WS splits sentences upstream)."""
     audio, mime = await synthesize(text, voice=voice)
     if audio:
         yield audio, mime

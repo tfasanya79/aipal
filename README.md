@@ -2,7 +2,7 @@
 
 **AiPal** is a voice-first companion: users talk naturally; AiPal understands, proposes concise plans for **Today**, asks once to confirm, and nudges before commitments.
 
-**Current version:** `2.4.0+18` (see [`apps/mobile/pubspec.yaml`](apps/mobile/pubspec.yaml))  
+**Current version:** `2.4.3+21` (see [`apps/mobile/pubspec.yaml`](apps/mobile/pubspec.yaml))  
 **Product status:** [`docs/PRODUCT.md`](docs/PRODUCT.md)
 
 ---

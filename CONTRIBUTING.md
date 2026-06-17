@@ -11,7 +11,7 @@ Thank you for helping test and improve AiPal.
 Include in every bug report:
 
 - Device + OS version
-- App build from **Settings** (e.g. `2.4.0 (18)`)
+- App build from **Settings** (e.g. `2.4.3 (21)`)
 - Steps to reproduce + screenshot if possible
 
 Suggested labels (maintainer may apply): `voice`, `today`, `wake`, `crash`, `android`.

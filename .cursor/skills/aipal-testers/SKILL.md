@@ -23,7 +23,7 @@ Use this skill **after a deploy** to produce a short brief for human testers (Pl
 ```markdown
 # AiPal tester brief — [VERSION] — [DATE]
 
-**Build:** [e.g. 2.1.2+13]  
+**Build:** [e.g. 2.4.3+21]  
 **Install:** Play Internal opt-in link OR [APK URL] OR https://[host]/app/
 
 ## What changed

@@ -2,7 +2,7 @@
 
 **Canonical current-state reference.** The Cursor plan file [aipal_brain_and_qa_ac51c760.plan.md](/home/dev/.cursor/plans/aipal_brain_and_qa_ac51c760.plan.md) captured the v11 brain milestone; it may be stale. Update **this file** when phases ship.
 
-**App version:** `2.4.0+18` (see `apps/mobile/pubspec.yaml`)  
+**App version:** `2.4.3+21` (see `apps/mobile/pubspec.yaml`)  
 **Stack:** Flutter mobile/web + FastAPI v2 — not Capacitor/React Native.
 
 ---
@@ -28,7 +28,7 @@
 - Today: priority lanes, routine chips, focus timer dial, suggest-day
 - In-app **AiPal** logo (Companion, Today header, onboarding)
 - Release QA: `release-qa-agent.md`, `smoke-test.sh`, pytest brain tests
-- Play Internal track: **2.4.0+18** (Android)
+- Play Internal track: **2.4.3+21** (Android)
 - C1 foreground wake word **Hi Pal** (OpenWakeWord; Settings opt-in)
 - C2 Android background wake — foreground microphone service + notification
 - Phase C prep: Today snapshot in turn context, timezone-aware today-view, voice UX copy rules
