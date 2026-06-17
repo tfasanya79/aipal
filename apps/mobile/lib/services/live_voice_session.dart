@@ -115,7 +115,6 @@ class LiveVoiceSession {
   /// Play proactive greeting TTS without sending through the LLM turn pipeline.
   Future<void> playGreeting(Uint8List bytes, String mime) async {
     if (!_active || _playback == null || bytes.isEmpty) return;
-    _speaking = true;
     await _playback!.enqueue(bytes: bytes, mime: mime);
   }
 
