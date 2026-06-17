@@ -42,7 +42,7 @@ async def test_turn_cancellation_registry():
 
 
 @pytest.mark.asyncio
-async def test_whisper_streaming_stt_partial_dedupe():
+async def test_whisper_streaming_stt_buffers_only_during_speech():
     from app.services.whisper_streaming_stt import WhisperStreamingSTT
     from app.config import Settings
 
@@ -51,17 +51,18 @@ async def test_whisper_streaming_stt_partial_dedupe():
 
     pcm = (np.zeros(16000, dtype=np.int16)).tobytes()
 
-    with patch.object(stt, "_transcribe", new_callable=AsyncMock) as mock_tx:
-        mock_tx.return_value = "hello"
-        await stt.on_speech_start()
-        first = await stt.feed_audio(pcm)
-        second = await stt.feed_audio(pcm)
-        assert first == "hello"
-        assert second is None
+    ignored = await stt.feed_audio(pcm)
+    assert ignored is None
+    assert len(stt._buffer) == 0
+
+    await stt.on_speech_start()
+    buffered = await stt.feed_audio(pcm)
+    assert buffered is None
+    assert len(stt._buffer) == len(pcm)
 
 
 @pytest.mark.asyncio
-async def test_whisper_streaming_stt_partial_metrics():
+async def test_whisper_streaming_stt_on_speech_end_transcribes():
     from app.services.whisper_streaming_stt import WhisperStreamingSTT
     from app.config import Settings
 
@@ -73,10 +74,9 @@ async def test_whisper_streaming_stt_partial_metrics():
         mock_tx.return_value = "hello"
         await stt.on_speech_start()
         await stt.feed_audio(pcm)
-        await stt.on_speech_end()
-        metrics = stt.consume_metrics()
-        assert "stt_partial_ms" in metrics
-        assert metrics["stt_partial_ms"] >= 0
+        text = await stt.on_speech_end()
+        assert text == "hello"
+        mock_tx.assert_awaited()
 
 
 @pytest.mark.asyncio

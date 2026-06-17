@@ -129,9 +129,11 @@ async def _run_turn_pipeline(
                                 draft.model_dump() if hasattr(draft, "model_dump") else draft
                             )
                         log.info(
-                            "live_turn_complete user=%s turn=%s metrics=%s",
+                            "live_voice turn_complete user=%s session=%s turn=%s reply_len=%d metrics=%s",
                             user.id,
+                            session_id,
                             turn_id,
+                            len(event.get("reply", "") or ""),
                             metrics,
                         )
                         await websocket.send_json(payload)
@@ -176,6 +178,12 @@ async def live_session(websocket: WebSocket):
         {"type": "session_started", "session_id": str(session_id), "state": "live"}
     )
     await _send_state(websocket, "listening")
+    log.info(
+        "live_voice session_started user=%s email=%s session=%s",
+        user.id,
+        user.email,
+        session_id,
+    )
 
     stt = get_streaming_stt(settings) if settings.live_voice_v2 else None
     cancel_registry = TurnCancellationRegistry()
@@ -265,6 +273,12 @@ async def live_session(websocket: WebSocket):
             if msg_type == "speech_start":
                 if stt:
                     await stt.on_speech_start()
+                log.info(
+                    "live_voice speech_start user=%s session=%s turn=%s",
+                    user.id,
+                    session_id,
+                    msg.get("turn_id") or "",
+                )
                 continue
 
             turn_id = msg.get("turn_id") or str(uuid.uuid4())
@@ -287,8 +301,18 @@ async def live_session(websocket: WebSocket):
                     transcript = await stt.on_speech_end()
                     stt_metrics = stt.consume_metrics()
                 stt_final_ms = int((time.monotonic() - stt_t0) * 1000)
+                transcript = (transcript or "").strip()
+                log.info(
+                    "live_voice speech_end user=%s session=%s turn=%s stt_final_ms=%d transcript_len=%d empty=%s",
+                    user.id,
+                    session_id,
+                    turn_id,
+                    stt_final_ms,
+                    len(transcript),
+                    not transcript,
+                )
 
-                if not (transcript or "").strip():
+                if not transcript:
                     await websocket.send_json(
                         {
                             "type": "transcript_final",
@@ -298,8 +322,15 @@ async def live_session(websocket: WebSocket):
                     )
                     continue
 
+                log.info(
+                    "live_voice transcript user=%s session=%s turn=%s text=%r",
+                    user.id,
+                    session_id,
+                    turn_id,
+                    transcript[:200],
+                )
                 await websocket.send_json(
-                    {"type": "transcript_final", "turn_id": turn_id, "text": transcript.strip()}
+                    {"type": "transcript_final", "turn_id": turn_id, "text": transcript}
                 )
                 await _send_state(websocket, "thinking")
                 await _send_state(websocket, "speaking")
@@ -309,7 +340,7 @@ async def live_session(websocket: WebSocket):
                         user,
                         session_id,
                         turn_id,
-                        transcript.strip(),
+                        transcript,
                         cancel_registry,
                         stt_final_ms=stt_final_ms,
                         stt_metrics=stt_metrics,
@@ -339,7 +370,7 @@ async def live_session(websocket: WebSocket):
                 )
 
     except WebSocketDisconnect:
-        log.info("WebSocket disconnected user=%s", user.id)
+        log.info("live_voice disconnected user=%s session=%s", user.id, session_id)
     finally:
         cancel_registry.cancel_all()
         async with async_session() as db:

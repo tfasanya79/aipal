@@ -6,13 +6,14 @@ import 'package:audioplayers/audioplayers.dart';
 
 /// Plays TTS audio chunks sequentially; supports flush on interrupt.
 class AudioPlaybackQueue {
-  AudioPlaybackQueue({AudioPlayer? player}) : _player = player ?? AudioPlayer();
+  AudioPlaybackQueue({AudioPlayer? player, this.onIdle}) : _player = player ?? AudioPlayer();
 
   final AudioPlayer _player;
   final List<_QueuedChunk> _queue = [];
   bool _playing = false;
   bool _disposed = false;
   StreamSubscription<void>? _completeSub;
+  void Function()? onIdle;
 
   bool get isPlaying => _playing;
 
@@ -40,7 +41,11 @@ class AudioPlaybackQueue {
 
   Future<void> _playNext() async {
     if (_disposed || _queue.isEmpty) {
+      final wasPlaying = _playing;
       _playing = false;
+      if (wasPlaying) {
+        onIdle?.call();
+      }
       return;
     }
     _playing = true;

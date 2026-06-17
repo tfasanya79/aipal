@@ -50,6 +50,7 @@ class LiveVoiceSession {
 
   bool get isActive => _active;
   bool get isSpeaking => _speaking;
+  bool get isPlaybackActive => _playback?.isPlaying ?? false;
 
   Future<bool> ensureMicPermission() async {
     return _recorder.ensureMicPermission();
@@ -57,7 +58,11 @@ class LiveVoiceSession {
 
   Future<void> start(String token) async {
     await stop();
-    _playback = AudioPlaybackQueue();
+    _playback = AudioPlaybackQueue(
+      onIdle: () {
+        _speaking = false;
+      },
+    );
     _channel = WebSocketChannel.connect(Uri.parse(AppConfig.wsUrl(token)));
     _active = true;
     _dynamicSilenceMs = silenceMs;
@@ -161,7 +166,9 @@ class LiveVoiceSession {
   Future<void> _vadTick() async {
     if (!_active) return;
     final amp = await _recorder.getAmplitude();
-    final threshold = (_speaking || (isSpeakingForVad?.call() ?? false))
+    final threshold = (_speaking ||
+            (_playback?.isPlaying ?? false) ||
+            (isSpeakingForVad?.call() ?? false))
         ? thresholdDbSpeaking
         : thresholdDb;
     final speaking = amp.current > threshold;
@@ -173,7 +180,7 @@ class LiveVoiceSession {
         _segmentStartedAt = DateTime.now().millisecondsSinceEpoch;
         _currentTurnId ??= _uuid.v4();
         _channel?.sink.add(jsonEncode({'type': 'speech_start', 'turn_id': _currentTurnId}));
-        if (_speaking) {
+        if (_speaking || (_playback?.isPlaying ?? false)) {
           sendInterrupt();
         }
         onSpeechStart?.call();

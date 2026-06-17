@@ -10,6 +10,10 @@ from .db import init_db
 from .routers import auth, calendar, daily, integrations, profile, tasks, turn, ws_session
 from .schemas import HealthResponse
 
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s %(levelname)s %(name)s %(message)s",
+)
 log = logging.getLogger("aipal")
 settings = get_settings()
 

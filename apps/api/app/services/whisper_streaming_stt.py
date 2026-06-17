@@ -60,22 +60,15 @@ class WhisperStreamingSTT:
         self._last_metrics = {}
 
     async def feed_audio(self, pcm: bytes) -> str | None:
-        if not pcm:
+        """Buffer PCM during an active utterance only.
+
+        Partial Whisper inference is intentionally disabled here: running it on
+        every audio_frame blocked the WebSocket receive loop for seconds on CPU,
+        delaying speech_end and making Live appear deaf after the first turn.
+        """
+        if not pcm or not self._speech_active:
             return None
         self._buffer.extend(pcm)
-        if not self._speech_active:
-            return None
-        now = time.monotonic() * 1000
-        if now - self._last_partial_at < self._partial_interval_ms:
-            return None
-        text = await self._transcribe(beam_size=1)
-        if text and text != self._last_partial_text:
-            if self._first_partial_mono is None:
-                self._first_partial_mono = time.monotonic()
-            self._last_partial_text = text
-            self._last_partial_at = now
-            return text
-        self._last_partial_at = now
         return None
 
     async def on_speech_end(self) -> str:

@@ -164,6 +164,13 @@ class AppState extends ChangeNotifier {
     final suppressed =
         liveSession.state != LiveState.resting || _shouldSuppressWake();
     final wasRunning = await WakeBackgroundService.isRunning();
+
+    // Live mode holds the mic; restart FGS so OpenWakeWord re-inits cleanly.
+    if (wasRunning && !suppressed) {
+      await WakeBackgroundService.stop();
+      await Future<void>.delayed(const Duration(milliseconds: 300));
+    }
+
     final running = await WakeBackgroundService.ensureRunning();
     if (!running) {
       wakeWordListening = false;
@@ -175,15 +182,9 @@ class AppState extends ChangeNotifier {
     }
 
     WakeBackgroundService.setSuppressed(suppressed);
-    if (wasRunning) {
-      wakeWordEngineReady = true;
-      wakeWordListening = !suppressed;
-      wakeWordError = null;
-    } else {
-      wakeWordEngineReady = false;
-      wakeWordListening = false;
-      wakeWordError = 'Starting wake word engine…';
-    }
+    wakeWordEngineReady = false;
+    wakeWordListening = false;
+    wakeWordError = suppressed ? null : 'Starting wake word engine…';
     notifyListeners();
   }
 
@@ -436,7 +437,8 @@ class AppState extends ChangeNotifier {
 
   bool _shouldSuppressLiveVad() => _processingTurn && _liveVoiceV2 == null;
 
-  bool _isSpeakingForVad() => _speaking;
+  bool _isSpeakingForVad() =>
+      _speaking || (_liveVoiceV2?.isPlaybackActive ?? false);
 
   bool _shouldSuppressWake() =>
       _speaking || _processingTurn || _liveActive;
