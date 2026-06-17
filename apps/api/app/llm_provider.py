@@ -1,4 +1,6 @@
+import json
 import logging
+from collections.abc import AsyncIterator
 
 import httpx
 
@@ -21,12 +23,27 @@ SYSTEM_PROMPT = (
     "If wake word is enabled, they may say Hi Pal to start Live — do not insist on tapping the orb."
 )
 
+VOICE_STREAM_PROMPT_SUFFIX = (
+    " Reply in plain spoken language first. If planning JSON is requested in the user message, "
+    "append it only after your spoken reply inside a ```json fenced block."
+)
+
 
 async def llm_chat(messages: list[dict[str, str]]) -> str:
     provider = settings.llm_provider.lower()
     if provider == "deepseek" and settings.deepseek_api_key:
         return await _deepseek_chat(messages)
     return await _ollama_chat(messages)
+
+
+async def llm_chat_stream(messages: list[dict[str, str]]) -> AsyncIterator[str]:
+    provider = settings.llm_provider.lower()
+    if provider == "deepseek" and settings.deepseek_api_key:
+        async for chunk in _deepseek_chat_stream(messages):
+            yield chunk
+        return
+    text = await _ollama_chat(messages)
+    yield text
 
 
 async def _deepseek_chat(messages: list[dict[str, str]]) -> str:
@@ -44,8 +61,36 @@ async def _deepseek_chat(messages: list[dict[str, str]]) -> str:
         return resp.json()["choices"][0]["message"]["content"]
 
 
+async def _deepseek_chat_stream(messages: list[dict[str, str]]) -> AsyncIterator[str]:
+    async with httpx.AsyncClient(timeout=60.0) as client:
+        async with client.stream(
+            "POST",
+            "https://api.deepseek.com/chat/completions",
+            headers={"Authorization": f"Bearer {settings.deepseek_api_key}"},
+            json={
+                "model": "deepseek-chat",
+                "messages": [{"role": "system", "content": SYSTEM_PROMPT + VOICE_STREAM_PROMPT_SUFFIX}, *messages],
+                "max_tokens": 400,
+                "stream": True,
+            },
+        ) as resp:
+            resp.raise_for_status()
+            async for line in resp.aiter_lines():
+                if not line.startswith("data: "):
+                    continue
+                payload = line[6:].strip()
+                if payload == "[DONE]":
+                    break
+                try:
+                    data = json.loads(payload)
+                    delta = data["choices"][0].get("delta", {}).get("content")
+                    if delta:
+                        yield delta
+                except (json.JSONDecodeError, KeyError, IndexError):
+                    continue
+
+
 async def llm_chat_json(messages: list[dict[str, str]]) -> dict:
-    import json
     import re
 
     text = await llm_chat(messages)

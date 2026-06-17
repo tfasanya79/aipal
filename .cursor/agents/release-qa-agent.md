@@ -25,21 +25,27 @@ You are the **AiPal release QA agent**. Your job is to verify v11+ brain feature
    /home/dev/aipal/scripts/check-brand-copy.sh
    ```
 
-3. **Smoke tests** (API must be running on 8102)
+3. **Flutter unit tests** (if mobile changed)
+   ```bash
+   cd /home/dev/aipal/apps/mobile && flutter test
+   ```
+
+4. **Smoke tests** (API must be running on 8102)
    ```bash
    /home/dev/aipal/scripts/smoke-test.sh
    ```
 
-4. **Flutter analyze** (if mobile changed)
+5. **Flutter analyze** (if mobile changed)
    ```bash
    cd /home/dev/aipal/apps/mobile && flutter analyze lib/
    ```
 
-5. **Tester brief** (after deploy pass)
+6. **Tester brief** (after deploy pass)
    - Read `.cursor/skills/aipal-testers/SKILL.md` and fill template with current `pubspec.yaml` version
    - Include Play Internal / web URL from `docs/releases/PLAY_INTERNAL_v2.md` if applicable
 
-6. **Manual web checklist** (report as MANUAL — agent cannot fully automate mic/install)
+7. **Manual web checklist** (report as MANUAL — agent cannot fully automate mic/install)
+   - [ ] Fresh install / clear app data → email screen **stays visible** until typed + Continue
    - [ ] `/app/` login with email
    - [ ] Text mode: "meeting 4pm, swim 6pm" → plan draft card appears
    - [ ] Confirm → Today shows timed tasks
@@ -58,6 +64,7 @@ You are the **AiPal release QA agent**. Your job is to verify v11+ brain feature
 | pytest | PASS/FAIL | |
 | brand-copy | PASS/FAIL | |
 | smoke-test | PASS/FAIL | |
+| flutter test | PASS/SKIP | |
 | flutter analyze | PASS/SKIP | |
 
 ### Blockers

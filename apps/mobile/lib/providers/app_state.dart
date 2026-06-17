@@ -6,9 +6,11 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_foreground_task/flutter_foreground_task.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
+import '../config.dart';
 import '../services/api_client.dart';
 import '../services/live_session.dart';
 import '../services/live_voice_loop.dart';
+import '../services/live_voice_session.dart';
 import '../services/notification_service.dart';
 import '../services/wake_background_service.dart';
 import '../services/wake_word_prefs.dart';
@@ -22,6 +24,7 @@ class AppState extends ChangeNotifier {
   }
 
   final _storage = const FlutterSecureStorage();
+  bool authReady = false;
   String? token;
   Map<String, dynamic>? profile;
   List<Map<String, dynamic>> tasks = [];
@@ -32,6 +35,7 @@ class AppState extends ChangeNotifier {
   Map<String, dynamic>? focusTask;
   int focusSeconds = 25 * 60;
   final liveSession = LiveSession();
+  LiveVoiceSession? _liveVoiceV2;
   LiveVoiceLoop? _voiceLoop;
   final _player = AudioPlayer();
   String? lastReply;
@@ -78,19 +82,23 @@ class AppState extends ChangeNotifier {
   }
 
   Future<void> loadStoredAuth() async {
-    token = await _storage.read(key: 'token');
-    if (token != null) {
-      try {
-        profile = await api.getProfile();
-        await _loadCheckinBanner();
-        await refreshTodayView();
-      } catch (_) {
-        token = null;
+    try {
+      token = await _storage.read(key: 'token');
+      if (token != null) {
+        try {
+          profile = await api.getProfile();
+          await _loadCheckinBanner();
+          await refreshTodayView();
+        } catch (_) {
+          token = null;
+        }
       }
+      await _loadWakePrefs();
+      await syncWakeListener();
+    } finally {
+      authReady = true;
+      notifyListeners();
     }
-    await _loadWakePrefs();
-    await syncWakeListener();
-    notifyListeners();
   }
 
   Future<void> _loadWakePrefs() async {
@@ -384,58 +392,160 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
-  bool _shouldSuppressLiveVad() => _processingTurn;
+  bool get _liveActive => _liveVoiceV2?.isActive ?? liveSession.isActive;
+
+  bool _shouldSuppressLiveVad() => _processingTurn && _liveVoiceV2 == null;
 
   bool _isSpeakingForVad() => _speaking;
 
   bool _shouldSuppressWake() =>
-      _speaking || _processingTurn || liveSession.isActive;
+      _speaking || _processingTurn || _liveActive;
 
   Future<void> toggleLive() async {
     if (token == null) return;
     if (liveSession.state == LiveState.resting) {
-      final loop = LiveVoiceLoop(
-        onSegment: _handleVoiceSegment,
-        shouldSuppress: _shouldSuppressLiveVad,
-        isSpeakingForVad: _isSpeakingForVad,
-        onSpeechStart: () {
-          if (_speaking) {
-            _turnGeneration++;
-            _speaking = false;
-            if (liveSession.isActive) {
+      final useV2 = AppConfig.liveVoiceV2 && !kIsWeb;
+      if (useV2) {
+        final session = LiveVoiceSession(
+          onMessage: _handleLiveV2Message,
+          isSpeakingForVad: _isSpeakingForVad,
+          onSpeechStart: () {
+            lastReply = null;
+            lastTranscript = null;
+            if (_speaking || (_liveVoiceV2?.isSpeaking ?? false)) {
+              _turnGeneration++;
+              _speaking = false;
               liveSession.state = LiveState.listening;
+              notifyListeners();
             }
-            unawaited(_player.stop());
+          },
+        );
+        try {
+          if (!await session.ensureMicPermission()) {
+            lastReply = 'Microphone permission is required for Live voice mode.';
             notifyListeners();
+            return;
           }
-        },
-      );
-      try {
-        if (!await loop.ensureMicPermission()) {
-          lastReply = 'Microphone permission is required for Live voice mode.';
-          notifyListeners();
-          return;
+          await session.start(token!);
+          _liveVoiceV2 = session;
+          liveSession.state = LiveState.listening;
+          liveSession.sessionId = session.sessionId;
+          unawaited(_playLiveGreeting(useWsPath: true));
+        } catch (e) {
+          lastReply = e.toString();
+          await _stopLiveV2();
         }
-        await liveSession.start(token!, (msg) {
-          if (msg['type'] == 'reply') {
-            lastReply = msg['text'] as String?;
+      } else {
+        final loop = LiveVoiceLoop(
+          onSegment: _handleVoiceSegment,
+          shouldSuppress: _shouldSuppressLiveVad,
+          isSpeakingForVad: _isSpeakingForVad,
+          onSpeechStart: () {
+            if (_speaking) {
+              _turnGeneration++;
+              _speaking = false;
+              if (liveSession.isActive) {
+                liveSession.state = LiveState.listening;
+              }
+              unawaited(_player.stop());
+              notifyListeners();
+            }
+          },
+        );
+        try {
+          if (!await loop.ensureMicPermission()) {
+            lastReply = 'Microphone permission is required for Live voice mode.';
             notifyListeners();
+            return;
           }
-        });
-        _voiceLoop = loop;
-        await loop.start();
-        unawaited(_playLiveGreeting());
-      } catch (e) {
-        lastReply = e.toString();
-        await _stopVoiceLoop();
-        await liveSession.stop();
+          await liveSession.start(token!, (msg) {
+            if (msg['type'] == 'reply') {
+              lastReply = msg['text'] as String?;
+              notifyListeners();
+            }
+          });
+          _voiceLoop = loop;
+          await loop.start();
+          unawaited(_playLiveGreeting());
+        } catch (e) {
+          lastReply = e.toString();
+          await _stopVoiceLoop();
+          await liveSession.stop();
+        }
       }
     } else {
       await _stopVoiceLoop();
+      await _stopLiveV2();
       await liveSession.stop();
       _turnGeneration++;
     }
     await syncWakeListener();
+    notifyListeners();
+  }
+
+  Future<void> _stopLiveV2() async {
+    final session = _liveVoiceV2;
+    _liveVoiceV2 = null;
+    if (session != null) {
+      await session.dispose();
+    }
+    liveSession.state = LiveState.resting;
+    liveSession.sessionId = null;
+  }
+
+  @visibleForTesting
+  void handleLiveV2MessageForTest(Map<String, dynamic> msg) => _handleLiveV2Message(msg);
+
+  void _handleLiveV2Message(Map<String, dynamic> msg) {
+    final type = msg['type'] as String?;
+    if (type == 'session_started') {
+      liveSession.sessionId = msg['session_id'] as String?;
+    }
+    if (type == 'state') {
+      final s = msg['state'] as String?;
+      if (s == 'thinking') {
+        liveSession.state = LiveState.thinking;
+        lastReply = null;
+      }
+      if (s == 'listening') liveSession.state = LiveState.listening;
+      if (s == 'speaking') {
+        liveSession.state = LiveState.speaking;
+        _speaking = true;
+      }
+    }
+    if (type == 'transcript_partial') {
+      lastTranscript = msg['text'] as String?;
+    }
+    if (type == 'transcript_final') {
+      lastTranscript = msg['text'] as String?;
+      lastReply = null;
+    }
+    if (type == 'reply_delta') {
+      final delta = msg['text'] as String? ?? '';
+      lastReply = '${lastReply ?? ''}$delta';
+    }
+    if (type == 'turn_complete') {
+      _processingTurn = false;
+      _speaking = false;
+      lastReply = msg['reply'] as String? ?? lastReply;
+      if (msg['draft_confirmed'] == true) {
+        pendingPlanDraft = null;
+        unawaited(refreshTodayView());
+      } else {
+        pendingPlanDraft = msg['plan_draft'] as Map<String, dynamic>?;
+        if (pendingPlanDraft == null) {
+          unawaited(loadPlanDraft());
+        }
+        if (msg['tool_actions'] is List && (msg['tool_actions'] as List).isNotEmpty) {
+          unawaited(refreshTodayView());
+        }
+      }
+      liveSession.state = LiveState.listening;
+    }
+    if (type == 'turn_cancelled') {
+      _speaking = false;
+      liveSession.state = LiveState.listening;
+    }
     notifyListeners();
   }
 
@@ -448,7 +558,7 @@ class AppState extends ChangeNotifier {
     }
   }
 
-  Future<void> _playLiveGreeting() async {
+  Future<void> _playLiveGreeting({bool useWsPath = false}) async {
     try {
       final showIntro = wakeWordEnabled && !await WakeWordPrefs.introShown();
       final greeting = await api.liveGreeting(
@@ -463,6 +573,11 @@ class AppState extends ChangeNotifier {
       if (text == null || text.isEmpty) return;
       lastReply = text;
       notifyListeners();
+      if (useWsPath && (_liveVoiceV2?.isActive ?? false)) {
+        _liveVoiceV2!.sendTextTurn(text);
+        await syncWakeListener();
+        return;
+      }
       final tts = await api.tts(text);
       await _playAudioResponse(tts);
       await syncWakeListener();
@@ -558,6 +673,12 @@ class AppState extends ChangeNotifier {
   }
 
   Future<Map<String, dynamic>> sendTextTurn(String text, {String? sessionId}) async {
+    if (_liveVoiceV2?.isActive ?? false) {
+      _liveVoiceV2!.sendTextTurn(text);
+      liveSession.state = LiveState.thinking;
+      notifyListeners();
+      return {'reply': text};
+    }
     if (liveSession.isActive) {
       liveSession.sendText(text);
       return {'reply': text};

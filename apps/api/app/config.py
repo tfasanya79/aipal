@@ -16,6 +16,12 @@ class Settings(BaseSettings):
     ollama_base_url: str = "http://127.0.0.1:11434"
     ollama_model: str = "llama3.2:3b"
     whisper_model: str = "base"
+    whisper_device: str = "cpu"
+    whisper_compute_type: str = "int8"
+    stt_provider: str = "whisper_stream"
+    whisper_stream_partial_interval_ms: int = 500
+    live_voice_v2: bool = True
+    live_turns_per_minute: int = 20
     mem0_enabled: bool = True
     cors_origins: str = "*"
     spotify_client_id: str = ""

@@ -20,4 +20,4 @@ jobs:
       - name: Analyze
         run: cd apps/mobile && flutter analyze
       - name: Test
-        run: cd apps/mobile && flutter test || true
+        run: cd apps/mobile && flutter test

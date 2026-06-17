@@ -43,6 +43,7 @@ sudo cp "$ROOT/infra/status/out/index.html" "$STATUS_ROOT/index.html"
 
 cd "$MOBILE"
 flutter pub get
+flutter test || die "flutter test failed"
 flutter build apk --release --dart-define="API_BASE_URL=$API_BASE_URL"
 flutter build web --release --base-href /app/ --dart-define="API_BASE_URL=$API_BASE_URL"
 

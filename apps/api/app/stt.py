@@ -16,7 +16,11 @@ def _get_model() -> Any:
     from faster_whisper import WhisperModel
 
     settings = get_settings()
-    return WhisperModel(settings.whisper_model, device="cpu", compute_type="int8")
+    return WhisperModel(
+        settings.whisper_model,
+        device=settings.whisper_device,
+        compute_type=settings.whisper_compute_type,
+    )
 
 
 def _ffmpeg_to_wav16_mono(path: str) -> str:

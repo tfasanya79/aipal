@@ -101,6 +101,18 @@
 - [x] Foreground TTS on Companion when app open
 - [x] Quiet hours + daily nudge cap
 
+### C5 — Live Voice v2 (in progress)
+
+- [x] ADR + WebSocket protocol (`docs/decisions/live-voice-v2.md`, `docs/architecture/live-voice-protocol.md`)
+- [x] Full-duplex `/ws/session`: `audio_frame`, `speech_end`, `interrupt`, streaming LLM + sentence TTS
+- [x] Self-hosted `WhisperStreamingSTT` (CPU; managed API upgrade criteria documented)
+- [x] Mobile: `LiveVoiceSession` + PCM stream + playback queue (native; web keeps REST fallback)
+- [x] Feature flag `LIVE_VOICE_V2`; per-turn metrics logging
+- [ ] Device QA on Android (barge-in, AEC, p95 latency)
+- [ ] Deprecate `POST /turn/audio` after one release at default v2
+
+**Acceptance (C5):** Live session streams mic during TTS; interrupt cancels server turn; time-to-first-audio under 5s p95 on CPU self-hosted STT.
+
 ### C4+ — Deferred
 
 - [ ] Richer mem0 retrieval every turn
