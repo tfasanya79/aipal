@@ -28,6 +28,9 @@ void main() async {
   }
   await appState.loadStoredAuth();
   runApp(AipalApp(appState: appState));
+  WidgetsBinding.instance.addPostFrameCallback((_) {
+    unawaited(appState.finishBootstrap());
+  });
 }
 
 class AipalApp extends StatelessWidget {

@@ -11,6 +11,31 @@ DOWNLOADS_ROOT="/var/www/aipal-downloads"
 WEB_ROOT="/var/www/aipal-v2-web"
 UPLOAD_PLAY="${UPLOAD_PLAY:-0}"
 
+prune_release_files() {
+  local version_code="$1"
+  local prev_code="$2"
+  local artifacts="$ROOT/.release_artifacts"
+  if [[ -d "$artifacts" ]]; then
+    find "$artifacts" -maxdepth 1 -name 'aipal-*.aab' -type f 2>/dev/null | while read -r f; do
+      local base
+      base="$(basename "$f")"
+      [[ "$base" == *"v${version_code}"* ]] && continue
+      [[ "$base" == *"v${prev_code}"* ]] && continue
+      rm -f "$f"
+    done
+  fi
+  if [[ -d "$DOWNLOADS_ROOT" ]]; then
+    find "$DOWNLOADS_ROOT" -maxdepth 1 -name 'aipal-v*.apk' -type f 2>/dev/null | while read -r f; do
+      local base
+      base="$(basename "$f")"
+      [[ "$base" == "aipal-latest.apk" ]] && continue
+      [[ "$base" == *"v${version_code}.apk" ]] && continue
+      [[ "$base" == *"v${prev_code}.apk" ]] && continue
+      sudo rm -f "$f"
+    done
+  fi
+}
+
 export JAVA_HOME="${JAVA_HOME:-/usr/lib/jvm/java-17-openjdk-amd64}"
 export ANDROID_HOME="${ANDROID_HOME:-/opt/android-sdk}"
 export ANDROID_SDK_ROOT="${ANDROID_SDK_ROOT:-$ANDROID_HOME}"
@@ -78,6 +103,7 @@ SHA256="$(sha256sum "$APK_SRC" | awk '{print $1}')"
 sudo mkdir -p "$DOWNLOADS_ROOT" "$WEB_ROOT"
 sudo cp "$APK_SRC" "$DOWNLOADS_ROOT/aipal-latest.apk"
 sudo cp "$APK_SRC" "$DOWNLOADS_ROOT/$APK_NAME"
+prune_release_files "$VERSION_CODE" "$((VERSION_CODE - 1))"
 sudo rsync -a --delete "$MOBILE/build/web/" "$WEB_ROOT/"
 
 INDEX_SRC="$ROOT/infra/downloads/index.html"

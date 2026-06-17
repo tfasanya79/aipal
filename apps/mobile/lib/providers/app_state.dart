@@ -83,9 +83,19 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Fast path for app launch: read stored token only; never blocks on network or wake.
   Future<void> loadStoredAuth() async {
     try {
       token = await _storage.read(key: 'token');
+    } finally {
+      authReady = true;
+      notifyListeners();
+    }
+  }
+
+  /// Post-frame bootstrap: profile validation, today view, wake listener.
+  Future<void> finishBootstrap() async {
+    try {
       if (token != null) {
         try {
           profile = await api.getProfile();
@@ -93,12 +103,14 @@ class AppState extends ChangeNotifier {
           await refreshTodayView();
         } catch (_) {
           token = null;
+          profile = null;
         }
       }
       await _loadWakePrefs();
-      await syncWakeListener();
+      try {
+        await syncWakeListener();
+      } catch (_) {}
     } finally {
-      authReady = true;
       notifyListeners();
     }
   }

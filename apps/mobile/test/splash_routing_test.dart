@@ -3,8 +3,24 @@ import 'package:aipal/screens/home_shell.dart';
 import 'package:aipal/screens/onboarding_screen.dart';
 import 'package:aipal/screens/splash_screen.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
+
+void _mockSecureStorage() {
+  TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+      .setMockMethodCallHandler(
+    const MethodChannel('plugins.it_nomads.com/flutter_secure_storage'),
+    (call) async => null,
+  );
+}
+
+void _mockAudioPlayerChannels() {
+  for (final name in ['xyz.luan/audioplayers.global', 'xyz.luan/audioplayers']) {
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(MethodChannel(name), (_) async => null);
+  }
+}
 
 Widget _wrap(AppState state) {
   return ChangeNotifierProvider.value(
@@ -14,6 +30,17 @@ Widget _wrap(AppState state) {
 }
 
 void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
+  _mockSecureStorage();
+  _mockAudioPlayerChannels();
+
+  test('loadStoredAuth sets authReady without blocking on network', () async {
+    final state = AppState();
+    expect(state.authReady, isFalse);
+    await state.loadStoredAuth();
+    expect(state.authReady, isTrue);
+  });
+
   testWidgets('shows spinner while auth not ready', (tester) async {
     final state = AppState();
     await tester.pumpWidget(_wrap(state));
