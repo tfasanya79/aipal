@@ -5,7 +5,7 @@ class AppConfig {
   );
 
   /// Live Voice v2: full-duplex WebSocket + PCM streaming (native).
-  static const liveVoiceV2 = bool.fromEnvironment('LIVE_VOICE_V2', defaultValue: true);
+  static const liveVoiceV2 = bool.fromEnvironment('LIVE_VOICE_V2', defaultValue: false);
 
   static String wsUrl(String token) {
     final base = apiBase.replaceFirst('https://', 'wss://').replaceFirst('http://', 'ws://');

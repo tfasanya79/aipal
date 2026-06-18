@@ -20,7 +20,7 @@ class Settings(BaseSettings):
     whisper_compute_type: str = "int8"
     stt_provider: str = "whisper_stream"
     whisper_stream_partial_interval_ms: int = 500
-    live_voice_v2: bool = True
+    live_voice_v2: bool = False
     live_turns_per_minute: int = 20
     mem0_enabled: bool = True
     cors_origins: str = "*"

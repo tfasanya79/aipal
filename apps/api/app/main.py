@@ -6,9 +6,10 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from .config import get_settings
-from .db import init_db
-from .routers import auth, calendar, daily, integrations, profile, tasks, turn, ws_session
+from .db import async_session, init_db
+from .routers import auth, calendar, daily, integrations, profile, sessions, tasks, turn, ws_session
 from .schemas import HealthResponse
+from .services import session_events as sess_svc
 
 logging.basicConfig(
     level=logging.INFO,
@@ -40,6 +41,10 @@ async def _prewarm_whisper() -> None:
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     await init_db()
+    async with async_session() as db:
+        deleted = await sess_svc.cleanup_old_events(db)
+        if deleted:
+            log.info("Cleaned up %d old session events", deleted)
     await _prewarm_whisper()
     log.info("AIpal API v2 started")
     yield
@@ -60,6 +65,7 @@ app.include_router(profile.router, prefix=prefix)
 app.include_router(tasks.router, prefix=prefix)
 app.include_router(daily.router, prefix=prefix)
 app.include_router(turn.router, prefix=prefix)
+app.include_router(sessions.router, prefix=prefix)
 app.include_router(calendar.router, prefix=prefix)
 app.include_router(integrations.router, prefix=prefix)
 app.include_router(ws_session.router, prefix=prefix)

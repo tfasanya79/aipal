@@ -218,4 +218,45 @@ class ApiClient {
     );
     return (jsonDecode(r.body) as Map<String, dynamic>)['imported'] as int;
   }
+
+  Future<Map<String, dynamic>> postSessionEvents({
+    required String sessionId,
+    String? phaseTag,
+    required List<Map<String, dynamic>> events,
+  }) async {
+    final body = <String, dynamic>{
+      'session_id': sessionId,
+      if (phaseTag != null) 'phase_tag': phaseTag,
+      'events': events
+          .map(
+            (e) => {
+              'event_type': e['event_type'],
+              'payload': e['payload'] ?? {},
+              if (e['phase_tag'] != null) 'phase_tag': e['phase_tag'],
+            },
+          )
+          .toList(),
+    };
+    final r = await _post(
+      Uri.parse('${AppConfig.apiBase}/sessions/events'),
+      body: jsonEncode(body),
+    );
+    if (r.statusCode >= 400) {
+      throw Exception('Session events failed (${r.statusCode}): ${r.body}');
+    }
+    return jsonDecode(r.body) as Map<String, dynamic>;
+  }
+
+  Future<List<dynamic>> recentSessions({int limit = 5}) async {
+    final r = await _get(Uri.parse('${AppConfig.apiBase}/sessions/recent?limit=$limit'));
+    return jsonDecode(r.body) as List<dynamic>;
+  }
+
+  Future<Map<String, dynamic>> exportSession(String sessionId) async {
+    final r = await _get(Uri.parse('${AppConfig.apiBase}/sessions/$sessionId/export'));
+    if (r.statusCode >= 400) {
+      throw Exception('Export failed (${r.statusCode}): ${r.body}');
+    }
+    return jsonDecode(r.body) as Map<String, dynamic>;
+  }
 }

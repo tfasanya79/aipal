@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
-# Tail Live Voice v2 conversation logs from the API service (run on the VM).
+# Tail half-duplex Live voice and session observability logs (run on the VM).
 # Usage: ./scripts/monitor-live-voice.sh
 set -euo pipefail
 
-echo "Monitoring Live Voice logs (Ctrl+C to stop)…"
-echo "Look for: session_started, speech_start, speech_end, transcript, turn_complete"
+echo "Monitoring AiPal voice + session logs (Ctrl+C to stop)…"
+echo "Look for: audio_turn_complete, live_start, segment_upload, turn_complete, wake_detected, stt_empty"
 echo ""
 
 sudo journalctl -u aipal-v2.service -f --no-pager 2>&1 \
-  | grep --line-buffered -iE 'live_voice|aipal\.ws|whisper|transcript|speech_|turn_complete|error|exception'
+  | grep --line-buffered -iE 'audio_turn|session_events|aipal\.turn|live_start|segment_upload|turn_complete|wake_detected|stt_empty|transcript|error|exception'

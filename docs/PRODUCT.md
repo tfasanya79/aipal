@@ -2,7 +2,7 @@
 
 **Canonical current-state reference.** The Cursor plan file [aipal_brain_and_qa_ac51c760.plan.md](/home/dev/.cursor/plans/aipal_brain_and_qa_ac51c760.plan.md) captured the v11 brain milestone; it may be stale. Update **this file** when phases ship.
 
-**App version:** `2.4.3+21` (see `apps/mobile/pubspec.yaml`)  
+**App version:** `2.5.3+41` (see `apps/mobile/pubspec.yaml`)  
 **Stack:** Flutter mobile/web + FastAPI v2 — not Capacitor/React Native.
 
 ---
@@ -13,7 +13,7 @@
 |-------|------|--------|
 | **A** | Conversational brain + chat-to-Today | **Done** (v11) |
 | **B** | Visible brand + Today visual polish | **Done** (v11.1) |
-| **C** | Voice-first / wake / proactive | **In progress** (C1 + C2 + C3a/b shipped; C4 deferred) |
+| **C** | Voice-first / wake / proactive | **Voice baseline locked** (build 38 PASS; observability + Today polish in progress) |
 
 **Phase C naming:** In this doc, **C1** = foreground wake word, **C2** = Android background listening. That is **not** the same as plan file "Phase B" (logo/Today polish), which is **done** above.
 
@@ -28,7 +28,9 @@
 - Today: priority lanes, routine chips, focus timer dial, suggest-day
 - In-app **AiPal** logo (Companion, Today header, onboarding)
 - Release QA: `release-qa-agent.md`, `smoke-test.sh`, pytest brain tests
-- Play Internal track: **2.4.3+21** (Android)
+- Play Internal track: **2.5.3+41** (Android)
+- Session observability for phased QA (`session_events`, Settings export)
+- Today hero card (Reminders-style glanceable summary)
 - C1 foreground wake word **Hi Pal** (OpenWakeWord; Settings opt-in)
 - C2 Android background wake — foreground microphone service + notification
 - Phase C prep: Today snapshot in turn context, timezone-aware today-view, voice UX copy rules
@@ -101,23 +103,15 @@
 - [x] Foreground TTS on Companion when app open
 - [x] Quiet hours + daily nudge cap
 
-### C5 — Live Voice v2 (in progress)
-
-- [x] ADR + WebSocket protocol (`docs/decisions/live-voice-v2.md`, `docs/architecture/live-voice-protocol.md`)
-- [x] Full-duplex `/ws/session`: `audio_frame`, `speech_end`, `interrupt`, streaming LLM + sentence TTS
-- [x] Self-hosted `WhisperStreamingSTT` (CPU; managed API upgrade criteria documented)
-- [x] Mobile: `LiveVoiceSession` + PCM stream + playback queue (native; web keeps REST fallback)
-- [x] Feature flag `LIVE_VOICE_V2`; per-turn metrics logging
-- [ ] Device QA on Android (barge-in, AEC, p95 latency)
-- [ ] Deprecate `POST /turn/audio` after one release at default v2
-
-**Acceptance (C5):** Live session streams mic during TTS; interrupt cancels server turn; time-to-first-audio under 5s p95 on CPU self-hosted STT.
-
 ### C4+ — Deferred
 
 - [ ] Richer mem0 retrieval every turn
 - [ ] Calendar import
 - [ ] Compose message draft — user describes intent; AiPal drafts SMS/email for user review, edit, and manual send (no auto-send)
+
+### C5 — Full-duplex Live Voice v2 — Deferred
+
+Paused 2026-06-18. Production Live uses half-duplex (`POST /turn/audio`). See [`decisions/live-voice-v2.md`](./decisions/live-voice-v2.md) and [`releases/HALF_DUPLEX_RECOVERY.md`](./releases/HALF_DUPLEX_RECOVERY.md).
 
 ---
 
@@ -139,6 +133,9 @@
 ## Related docs
 
 - [Wake word decision](./decisions/wake-word-engine.md)
+- [Half-duplex recovery build 38](./releases/HALF_DUPLEX_RECOVERY.md)
+- [Live Voice v2 ADR (paused)](./decisions/live-voice-v2.md)
+- [Core pillars](./CORE_PILLARS.md)
 - [Stakeholder roadmap](./stakeholder/ROADMAP.md)
 - [Play Internal v2](./releases/PLAY_INTERNAL_v2.md)
 - Legacy charter: `legacy/Project-goal--explicit-plan-100-project-goal.md` (pre-Flutter; historical)
