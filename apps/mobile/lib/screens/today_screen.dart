@@ -10,6 +10,7 @@ import '../widgets/today/routine_chips.dart';
 import '../widgets/today/timeline_task_tile.dart';
 import '../widgets/today/today_empty.dart';
 import '../widgets/today/today_header.dart';
+import '../widgets/today/today_hero_card.dart';
 import '../widgets/today/up_next_card.dart';
 
 class TodayScreen extends StatefulWidget {
@@ -92,6 +93,12 @@ class _TodayScreenState extends State<TodayScreen> {
         final completed = (sections?['completed'] as List?)?.cast<Map<String, dynamic>>() ?? [];
         final focus = state.focusTask;
         final planDraft = state.pendingPlanDraft;
+        final wakeName = state.profile?['wake_name'] as String? ??
+            state.profile?['display_name'] as String? ??
+            'friend';
+        final openCount = summary?['open'] as int? ?? 0;
+        final done = summary?['done'] as int? ?? 0;
+        final total = summary?['total'] as int? ?? 0;
 
         return Scaffold(
           floatingActionButton: FloatingActionButton(
@@ -115,7 +122,13 @@ class _TodayScreenState extends State<TodayScreen> {
                       : (summary?['total'] as int? ?? 0) == 0 && upNext == null
                           ? ListView(
                               children: [
-                                TodayHeader(done: 0, total: 0, onReview: () => _loadAndReview(state)),
+                                TodayHeader(onReview: () => _loadAndReview(state)),
+                                TodayHeroCard(
+                                  openCount: 0,
+                                  done: 0,
+                                  total: 0,
+                                  wakeName: wakeName,
+                                ),
                                 RoutineChips(
                                   busy: state.loading,
                                   onSelect: (t) => _suggestDay(state, template: t),
@@ -152,10 +165,14 @@ class _TodayScreenState extends State<TodayScreen> {
                           : ListView(
                               children: [
                                 TodayHeader(
-                                  done: summary?['done'] as int? ?? 0,
-                                  total: summary?['total'] as int? ?? 0,
                                   streakDays: summary?['streak_days'] as int? ?? 0,
                                   onReview: () => _loadAndReview(state),
+                                ),
+                                TodayHeroCard(
+                                  openCount: openCount,
+                                  done: done,
+                                  total: total,
+                                  wakeName: wakeName,
                                 ),
                                 RoutineChips(
                                   busy: state.loading,

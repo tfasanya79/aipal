@@ -11,6 +11,31 @@ DOWNLOADS_ROOT="/var/www/aipal-downloads"
 WEB_ROOT="/var/www/aipal-v2-web"
 UPLOAD_PLAY="${UPLOAD_PLAY:-0}"
 
+prune_release_files() {
+  local version_code="$1"
+  local prev_code="$2"
+  local artifacts="$ROOT/.release_artifacts"
+  if [[ -d "$artifacts" ]]; then
+    find "$artifacts" -maxdepth 1 -name 'aipal-*.aab' -type f 2>/dev/null | while read -r f; do
+      local base
+      base="$(basename "$f")"
+      [[ "$base" == *"v${version_code}"* ]] && continue
+      [[ "$base" == *"v${prev_code}"* ]] && continue
+      rm -f "$f"
+    done
+  fi
+  if [[ -d "$DOWNLOADS_ROOT" ]]; then
+    find "$DOWNLOADS_ROOT" -maxdepth 1 -name 'aipal-v*.apk' -type f 2>/dev/null | while read -r f; do
+      local base
+      base="$(basename "$f")"
+      [[ "$base" == "aipal-latest.apk" ]] && continue
+      [[ "$base" == *"v${version_code}.apk" ]] && continue
+      [[ "$base" == *"v${prev_code}.apk" ]] && continue
+      sudo rm -f "$f"
+    done
+  fi
+}
+
 export JAVA_HOME="${JAVA_HOME:-/usr/lib/jvm/java-17-openjdk-amd64}"
 export ANDROID_HOME="${ANDROID_HOME:-/opt/android-sdk}"
 export ANDROID_SDK_ROOT="${ANDROID_SDK_ROOT:-$ANDROID_HOME}"
@@ -32,6 +57,27 @@ if [[ -f "$ROOT/apps/api/.venv/bin/python" ]]; then
 elif command -v python3 >/dev/null; then
   (cd "$ROOT/apps/api" && python3 -m pytest tests/ -q) || die "pytest failed"
 fi
+
+# Deploy the API to the production path and restart the service BEFORE smoke
+# testing, so smoke validates the freshly deployed server (not stale code).
+# Without this, mobile/web ship while the API silently stays on old code.
+API_DEPLOY_PATH="${API_DEPLOY_PATH:-/opt/aipal-v2}"
+API_SERVICE="${API_SERVICE:-aipal-v2.service}"
+SKIP_API_DEPLOY="${SKIP_API_DEPLOY:-0}"
+if [[ "$SKIP_API_DEPLOY" != "1" && -d "$API_DEPLOY_PATH" ]]; then
+  echo "Deploying API to $API_DEPLOY_PATH and restarting $API_SERVICE..."
+  sudo rsync -a --delete \
+    --exclude=.venv --exclude=__pycache__ --exclude='.env' \
+    "$ROOT/apps/api/" "$API_DEPLOY_PATH/apps/api/" || die "API rsync failed"
+  sudo systemctl restart "$API_SERVICE" || die "API service restart failed"
+  for _i in $(seq 1 20); do
+    curl -sf "http://127.0.0.1:8102/api/v2/health" -o /dev/null && break
+    sleep 0.5
+    [[ "$_i" == "20" ]] && die "API health check failed after restart"
+  done
+  echo "API deployed and healthy."
+fi
+
 chmod +x "$ROOT/scripts/smoke-test.sh"
 "$ROOT/scripts/smoke-test.sh" || die "smoke-test failed (is aipal-v2.service running?)"
 python3 "$ROOT/scripts/generate_aipal_icons.py"
@@ -43,6 +89,7 @@ sudo cp "$ROOT/infra/status/out/index.html" "$STATUS_ROOT/index.html"
 
 cd "$MOBILE"
 flutter pub get
+flutter test || die "flutter test failed"
 flutter build apk --release --dart-define="API_BASE_URL=$API_BASE_URL"
 flutter build web --release --base-href /app/ --dart-define="API_BASE_URL=$API_BASE_URL"
 
@@ -56,6 +103,7 @@ SHA256="$(sha256sum "$APK_SRC" | awk '{print $1}')"
 sudo mkdir -p "$DOWNLOADS_ROOT" "$WEB_ROOT"
 sudo cp "$APK_SRC" "$DOWNLOADS_ROOT/aipal-latest.apk"
 sudo cp "$APK_SRC" "$DOWNLOADS_ROOT/$APK_NAME"
+prune_release_files "$VERSION_CODE" "$((VERSION_CODE - 1))"
 sudo rsync -a --delete "$MOBILE/build/web/" "$WEB_ROOT/"
 
 INDEX_SRC="$ROOT/infra/downloads/index.html"

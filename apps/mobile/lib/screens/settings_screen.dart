@@ -1,5 +1,8 @@
+import 'dart:convert';
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:provider/provider.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -8,8 +11,68 @@ import '../providers/app_state.dart';
 import '../services/calendar_service.dart';
 import '../services/notification_service.dart';
 
-class SettingsScreen extends StatelessWidget {
+class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
+
+  @override
+  State<SettingsScreen> createState() => _SettingsScreenState();
+}
+
+class _SettingsScreenState extends State<SettingsScreen> {
+  bool _recordSessions = true;
+  final _phaseController = TextEditingController();
+  bool _loaded = false;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) => _loadPrefs());
+  }
+
+  Future<void> _loadPrefs() async {
+    final state = context.read<AppState>();
+    final enabled = await state.sessionRecordingEnabled();
+    final tag = await state.sessionPhaseTag();
+    if (!mounted) return;
+    setState(() {
+      _recordSessions = enabled;
+      _phaseController.text = tag ?? '';
+      _loaded = true;
+    });
+  }
+
+  @override
+  void dispose() {
+    _phaseController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _exportSession(BuildContext context) async {
+    final state = context.read<AppState>();
+    try {
+      final data = await state.exportLastSession();
+      if (!context.mounted) return;
+      if (data == null) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('No session to export yet — try a Live or text turn first.')),
+        );
+        return;
+      }
+      final json = const JsonEncoder.withIndent('  ').convert(data);
+      await Clipboard.setData(ClipboardData(text: json));
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Session log copied to clipboard')),
+        );
+      }
+    } catch (e) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Export failed: $e')),
+        );
+      }
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -45,6 +108,44 @@ class SettingsScreen extends StatelessWidget {
           value: p?['checkin_enabled'] as bool? ?? true,
           onChanged: (v) => state.updateProfile({'checkin_enabled': v}),
         ),
+        const Divider(),
+        const ListTile(
+          title: Text('Test session logging'),
+          subtitle: Text('Record events while you test each build. Export and share for debugging.'),
+        ),
+        if (_loaded)
+          SwitchListTile(
+            title: const Text('Record test sessions'),
+            value: _recordSessions,
+            onChanged: (v) async {
+              setState(() => _recordSessions = v);
+              await state.setSessionRecordingEnabled(v);
+            },
+          ),
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16),
+          child: TextField(
+            controller: _phaseController,
+            decoration: const InputDecoration(
+              labelText: 'Phase tag (optional)',
+              hintText: 'e.g. build-39-voice',
+              border: OutlineInputBorder(),
+            ),
+            onSubmitted: (v) => state.setSessionPhaseTag(v),
+            onEditingComplete: () => state.setSessionPhaseTag(_phaseController.text),
+          ),
+        ),
+        ListTile(
+          title: const Text('Export last session'),
+          subtitle: Text(
+            state.lastExportSessionId != null
+                ? 'Session ${state.lastExportSessionId}'
+                : 'No session yet',
+          ),
+          trailing: const Icon(Icons.copy),
+          onTap: () => _exportSession(context),
+        ),
+        const Divider(),
         ListTile(
           title: const Text('Reschedule morning brief'),
           onTap: () => NotificationService.instance.scheduleMorningBrief(hour: 8, minute: 0),

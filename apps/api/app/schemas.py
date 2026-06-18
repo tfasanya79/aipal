@@ -196,6 +196,50 @@ class HealthResponse(BaseModel):
     llm_provider: str
 
 
+class SessionEventInput(BaseModel):
+    event_type: str
+    payload: dict = Field(default_factory=dict)
+    phase_tag: str | None = None
+
+
+class SessionEventsBatchRequest(BaseModel):
+    session_id: str
+    phase_tag: str | None = None
+    events: list[SessionEventInput] = Field(default_factory=list)
+
+
+class SessionEventsBatchResponse(BaseModel):
+    recorded: int
+    session_id: str
+
+
+class RecentSessionSummary(BaseModel):
+    session_id: str
+    last_event_at: str | None = None
+    event_count: int
+    phase_tag: str | None = None
+
+
+class SessionExportEvent(BaseModel):
+    event_type: str
+    phase_tag: str | None = None
+    payload: dict = Field(default_factory=dict)
+    created_at: str
+
+
+class SessionExportTurn(BaseModel):
+    role: str
+    content: str
+    created_at: str
+
+
+class SessionExportResponse(BaseModel):
+    session_id: str
+    phase_tag: str | None = None
+    events: list[SessionExportEvent] = Field(default_factory=list)
+    turns: list[SessionExportTurn] = Field(default_factory=list)
+
+
 def time_to_str(t: time | None) -> str | None:
     return t.strftime("%H:%M") if t else None
 

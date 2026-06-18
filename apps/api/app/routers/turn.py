@@ -22,6 +22,7 @@ from ..services import conversation as conv_svc
 from ..services import plan_draft as draft_svc
 from ..services import plan_extractor
 from ..services import plan_intent
+from ..services import session_events as sess_svc
 from ..services import tasks as task_svc
 from ..timezone_util import user_local_today
 from ..stt import transcribe_path
@@ -35,6 +36,8 @@ _EMPTY_PLAN = {"intent": "other", "proposed_tasks": [], "clarifying_question": N
 
 
 def _agent_debug(hypothesis_id: str, location: str, message: str, data: dict, run_id: str = "pre-fix") -> None:
+    if os.environ.get("AGENT_DEBUG") != "1":
+        return
     try:
         entry = {
             "sessionId": "60ce92",
@@ -233,12 +236,14 @@ async def audio_turn(
     db: AsyncSession = Depends(get_db),
 ):
     raw = await file.read()
+    sid = session_id or str(uuid.uuid4())
+    t0 = time.monotonic()
     _agent_debug("A", "turn.py:audio_turn", "audio_upload_received", {"bytes": len(raw), "user_id": str(user.id)})
     if not raw:
         return AudioTurnResponse(
             transcript="",
             reply="I did not receive any audio. Stay in Live mode and speak naturally.",
-            session_id=session_id,
+            session_id=sid,
         )
 
     suffix = Path(file.filename or "turn.m4a").suffix.lower() or ".m4a"
@@ -246,24 +251,56 @@ async def audio_turn(
     os.close(fd)
     try:
         Path(tmp_path).write_bytes(raw)
+        t_stt = time.monotonic()
         transcript = await asyncio.to_thread(transcribe_path, tmp_path)
+        stt_ms = int((time.monotonic() - t_stt) * 1000)
     finally:
         Path(tmp_path).unlink(missing_ok=True)
 
     if not (transcript or "").strip():
+        await sess_svc.record_event(
+            db,
+            user.id,
+            sid,
+            "stt_empty",
+            payload={"bytes": len(raw), "stt_ms": stt_ms},
+        )
         return AudioTurnResponse(
             transcript="",
             reply="I did not catch that clearly. Try one short sentence near the microphone.",
-            session_id=session_id,
+            session_id=sid,
         )
 
+    t_reply = time.monotonic()
     reply, crisis, tool_actions, sid, draft = await _reply_for_text(
-        db, user, transcript.strip(), session_id
+        db, user, transcript.strip(), sid
     )
+    reply_ms = int((time.monotonic() - t_reply) * 1000)
+
     draft_confirmed = bool(
         tool_actions and any(a.startswith("Confirmed plan:") for a in tool_actions)
     )
+    t_tts = time.monotonic()
     audio_bytes, audio_mime = await synthesize(reply)
+    tts_ms = int((time.monotonic() - t_tts) * 1000)
+    total_ms = int((time.monotonic() - t0) * 1000)
+
+    await sess_svc.record_event(
+        db,
+        user.id,
+        sid,
+        "audio_turn_complete",
+        payload={
+            "bytes": len(raw),
+            "transcript_len": len(transcript.strip()),
+            "reply_len": len(reply),
+            "stt_ms": stt_ms,
+            "reply_ms": reply_ms,
+            "tts_ms": tts_ms,
+            "total_ms": total_ms,
+        },
+    )
+
     return AudioTurnResponse(
         transcript=transcript.strip(),
         reply=reply,

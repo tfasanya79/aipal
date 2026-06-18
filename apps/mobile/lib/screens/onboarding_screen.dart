@@ -102,7 +102,15 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
               FilledButton(
                 onPressed: () {
                   if (_step == 0 && !widget.continueProfile) {
-                    setState(() => _step = 1);
+                    final email = _email.text.trim();
+                    if (email.isEmpty || !email.contains('@')) {
+                      setState(() => _error = 'Enter a valid email address');
+                      return;
+                    }
+                    setState(() {
+                      _error = null;
+                      _step = 1;
+                    });
                   } else {
                     _finish();
                   }

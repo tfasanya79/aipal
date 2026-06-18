@@ -26,8 +26,11 @@ void main() async {
   } catch (_) {
     // Notifications optional — must not block app launch (APK sideload / web).
   }
-  unawaited(appState.loadStoredAuth());
+  await appState.loadStoredAuth();
   runApp(AipalApp(appState: appState));
+  WidgetsBinding.instance.addPostFrameCallback((_) {
+    unawaited(appState.finishBootstrap());
+  });
 }
 
 class AipalApp extends StatelessWidget {

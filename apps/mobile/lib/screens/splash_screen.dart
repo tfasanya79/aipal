@@ -12,6 +12,11 @@ class SplashScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     return Consumer<AppState>(
       builder: (context, state, _) {
+        if (!state.authReady) {
+          return const Scaffold(
+            body: Center(child: CircularProgressIndicator()),
+          );
+        }
         if (state.token == null) {
           return const OnboardingScreen();
         }

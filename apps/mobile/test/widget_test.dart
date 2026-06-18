@@ -3,9 +3,10 @@ import 'package:aipal/providers/app_state.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
-  testWidgets('App boots', (tester) async {
-    final appState = AppState();
+  testWidgets('App boots after auth ready', (tester) async {
+    final appState = AppState()..authReady = true;
     await tester.pumpWidget(AipalApp(appState: appState));
-    expect(find.textContaining('AiPal'), findsWidgets);
+    await tester.pump();
+    expect(find.text('Email for magic link'), findsOneWidget);
   });
 }

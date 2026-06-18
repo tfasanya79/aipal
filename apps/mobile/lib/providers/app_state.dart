@@ -10,6 +10,8 @@ import '../services/api_client.dart';
 import '../services/live_session.dart';
 import '../services/live_voice_loop.dart';
 import '../services/notification_service.dart';
+import '../services/session_logger.dart';
+import '../services/session_prefs.dart';
 import '../services/wake_background_service.dart';
 import '../services/wake_word_prefs.dart';
 import '../services/wake_word_service.dart';
@@ -22,6 +24,7 @@ class AppState extends ChangeNotifier {
   }
 
   final _storage = const FlutterSecureStorage();
+  bool authReady = false;
   String? token;
   Map<String, dynamic>? profile;
   List<Map<String, dynamic>> tasks = [];
@@ -47,8 +50,12 @@ class AppState extends ChangeNotifier {
   bool wakeWordListening = false;
   bool wakeWordAvailable = !kIsWeb;
   final List<Timer> _nudgeTimers = [];
+  late final SessionLogger _sessionLogger = SessionLogger(() => token != null ? api : null);
+  String? _lastExportSessionId;
 
   ApiClient get api => ApiClient(token);
+
+  String? get lastExportSessionId => _lastExportSessionId;
 
   bool get _isAndroid =>
       !kIsWeb && defaultTargetPlatform == TargetPlatform.android;
@@ -77,20 +84,44 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Fast path for app launch: read stored token only; never blocks on network or wake.
   Future<void> loadStoredAuth() async {
-    token = await _storage.read(key: 'token');
-    if (token != null) {
+    try {
       try {
-        profile = await api.getProfile();
-        await _loadCheckinBanner();
-        await refreshTodayView();
+        token = await _storage
+            .read(key: 'token')
+            .timeout(const Duration(seconds: 2));
+      } on TimeoutException {
+        token = null;
       } catch (_) {
         token = null;
       }
+    } finally {
+      authReady = true;
+      notifyListeners();
     }
-    await _loadWakePrefs();
-    await syncWakeListener();
-    notifyListeners();
+  }
+
+  /// Post-frame bootstrap: profile validation, today view, wake listener.
+  Future<void> finishBootstrap() async {
+    try {
+      if (token != null) {
+        try {
+          profile = await api.getProfile();
+          await _loadCheckinBanner();
+          await refreshTodayView();
+        } catch (_) {
+          token = null;
+          profile = null;
+        }
+      }
+      await _loadWakePrefs();
+      try {
+        await syncWakeListener();
+      } catch (_) {}
+    } finally {
+      notifyListeners();
+    }
   }
 
   Future<void> _loadWakePrefs() async {
@@ -184,6 +215,7 @@ class AppState extends ChangeNotifier {
 
   Future<void> handleBackgroundWake() async {
     if (liveSession.state != LiveState.resting) return;
+    await _sessionLogger.log('wake', 'wake_detected', payload: {'source': 'background'});
     selectedTab = 0;
     WakeBackgroundService.setSuppressed(true);
     notifyListeners();
@@ -192,6 +224,7 @@ class AppState extends ChangeNotifier {
 
   Future<void> _onWakeWordDetected() async {
     if (liveSession.state != LiveState.resting) return;
+    await _sessionLogger.log('wake', 'wake_detected', payload: {'source': 'foreground'});
     await _stopWakeListener();
     await toggleLive();
   }
@@ -422,6 +455,11 @@ class AppState extends ChangeNotifier {
             notifyListeners();
           }
         });
+        _lastExportSessionId = liveSession.sessionId;
+        await _sessionLogger.log(
+          liveSession.sessionId ?? 'live',
+          'live_start',
+        );
         _voiceLoop = loop;
         await loop.start();
         unawaited(_playLiveGreeting());
@@ -431,6 +469,9 @@ class AppState extends ChangeNotifier {
         await liveSession.stop();
       }
     } else {
+      final sid = liveSession.sessionId ?? 'live';
+      await _sessionLogger.log(sid, 'live_stop');
+      await _sessionLogger.flushNow(sid);
       await _stopVoiceLoop();
       await liveSession.stop();
       _turnGeneration++;
@@ -476,7 +517,9 @@ class AppState extends ChangeNotifier {
     liveSession.state = LiveState.thinking;
     notifyListeners();
     var shouldRefreshToday = false;
+    final sid = liveSession.sessionId ?? 'live';
     try {
+      await _sessionLogger.log(sid, 'segment_upload', payload: {'bytes': bytes.length});
       const filename = 'turn.webm';
       final res = await api.audioTurn(
         bytes,
@@ -488,8 +531,17 @@ class AppState extends ChangeNotifier {
       if (returnedSid != null && (liveSession.sessionId == null || liveSession.sessionId!.isEmpty)) {
         liveSession.sessionId = returnedSid;
       }
+      _lastExportSessionId = liveSession.sessionId ?? returnedSid ?? sid;
       lastTranscript = res['transcript'] as String?;
       lastReply = res['reply'] as String?;
+      await _sessionLogger.log(
+        _lastExportSessionId!,
+        'turn_complete',
+        payload: {
+          'transcript_len': (lastTranscript ?? '').length,
+          'reply_len': (lastReply ?? '').length,
+        },
+      );
       if (res['draft_confirmed'] == true) {
         pendingPlanDraft = null;
         shouldRefreshToday = true;
@@ -507,6 +559,7 @@ class AppState extends ChangeNotifier {
     } catch (e) {
       if (turnGen == _turnGeneration) {
         lastReply = 'Voice turn failed: $e';
+        await _sessionLogger.log(sid, 'error', payload: {'message': e.toString()});
       }
     } finally {
       _processingTurn = false;
@@ -562,13 +615,36 @@ class AppState extends ChangeNotifier {
       liveSession.sendText(text);
       return {'reply': text};
     }
-    final res = await api.textTurn(text, sessionId: sessionId);
+    final sid = sessionId ?? liveSession.sessionId ?? 'text';
+    final res = await api.textTurn(text, sessionId: sid);
+    _lastExportSessionId = res['session_id'] as String? ?? sid;
+    await _sessionLogger.log(
+      _lastExportSessionId!,
+      'text_turn',
+      payload: {'text_len': text.length, 'reply_len': (res['reply'] as String? ?? '').length},
+    );
+    await _sessionLogger.flushNow(_lastExportSessionId!);
     lastReply = res['reply'] as String?;
     pendingPlanDraft = res['plan_draft'] as Map<String, dynamic>?;
     await refreshTodayView();
     notifyListeners();
     return res;
   }
+
+  Future<Map<String, dynamic>?> exportLastSession() async {
+    final sid = _lastExportSessionId ?? liveSession.sessionId;
+    if (sid == null || sid.isEmpty) return null;
+    await _sessionLogger.flushNow(sid);
+    return api.exportSession(sid);
+  }
+
+  Future<bool> sessionRecordingEnabled() => SessionPrefs.isRecordingEnabled();
+
+  Future<void> setSessionRecordingEnabled(bool value) => SessionPrefs.setRecordingEnabled(value);
+
+  Future<String?> sessionPhaseTag() => SessionPrefs.phaseTag();
+
+  Future<void> setSessionPhaseTag(String? value) => SessionPrefs.setPhaseTag(value);
 
   Future<void> confirmPlanDraft() async {
     await api.confirmPlanDraft();
