@@ -58,3 +58,11 @@ async def synthesize(text: str, voice: str | None = None) -> tuple[bytes, str]:
     except (OSError, subprocess.CalledProcessError) as e:
         log.error("espeak-ng failed: %s", e)
         return b"", "audio/mpeg"
+
+
+async def synthesize_stream(text: str, voice: str | None = None):
+    """Yield one complete decodable audio clip per sentence (WS splits sentences upstream)."""
+    audio, mime = await synthesize(text, voice=voice)
+    if audio:
+        yield audio, mime
+

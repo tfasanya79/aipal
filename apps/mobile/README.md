@@ -1,6 +1,6 @@
 # AiPal Mobile (Flutter)
 
-Package: `io.aipal.mvp` · version **2.1.3+14**
+Package: `io.aipal.mvp` · version **2.4.3+21**
 
 ## Prerequisites
 

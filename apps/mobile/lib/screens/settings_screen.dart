@@ -93,7 +93,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
           title: const Text('Listen for Hi Pal'),
           subtitle: kIsWeb
               ? const Text('Wake word is available on the Android app.')
-              : defaultTargetPlatform == TargetPlatform.android
+              : state.wakeWordError != null
+                  ? Text(
+                      state.wakeWordError!,
+                      style: TextStyle(color: Theme.of(context).colorScheme.error),
+                    )
+                  : defaultTargetPlatform == TargetPlatform.android
                   ? const Text(
                       'Say Hi Pal anytime to start Live. Shows a listening notification while enabled. Background listening uses more battery.',
                     )

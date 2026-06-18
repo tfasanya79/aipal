@@ -14,7 +14,8 @@ description: >-
 1. **Brand copy** — `scripts/check-brand-copy.sh` (blocks wrong casing and third-party names)
 2. **API tests** — `cd apps/api && python3 -m pytest tests/ -q` (or `.venv/bin/python -m pytest`)
 3. **Smoke** — `scripts/smoke-test.sh` (requires `aipal-v2.service` on `:8102`)
-4. **Bump version** (if shipping) — `apps/mobile/pubspec.yaml` e.g. `2.1.1+12`
+4. **Flutter tests** — `cd apps/mobile && flutter test`
+5. **Bump version** (if shipping) — `apps/mobile/pubspec.yaml` e.g. `2.4.3+21`
 
 ## API deploy (server)
 
@@ -38,7 +39,7 @@ Or use Ansible: `ansible-playbook -i infra/inventory.ini infra/playbooks/deploy-
 ## Mobile + web deploy
 
 ```bash
-# Full pipeline (brand → pytest → smoke → icons → flutter build → publish)
+# Full pipeline (brand → pytest → smoke → icons → flutter test → flutter build → publish)
 scripts/deploy-all.sh
 
 # Play Internal upload (optional)
@@ -59,4 +60,4 @@ UPLOAD_PLAY=1 scripts/deploy-all.sh
 
 - `curl -sf https://43.160.220.9.sslip.io/api/v2/health`
 - `scripts/smoke-test.sh`
-- `cd apps/mobile && flutter analyze lib/`
+- `cd apps/mobile && flutter test && flutter analyze lib/`

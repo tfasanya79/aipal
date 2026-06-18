@@ -11,8 +11,15 @@ class WakeForegroundHandler extends TaskHandler {
   @override
   Future<void> onStart(DateTime timestamp, TaskStarter starter) async {
     _engine = WakeWordEngine(onWake: _onWakeDetected);
-    if (!await _engine!.init()) return;
+    if (!await _engine!.init()) {
+      FlutterForegroundTask.sendDataToMain({
+        'event': 'engine_failed',
+        'error': WakeWordEngine.lastInitError ?? 'OpenWakeWord init failed',
+      });
+      return;
+    }
     await _engine!.start();
+    FlutterForegroundTask.sendDataToMain({'event': 'engine_ready'});
   }
 
   @override

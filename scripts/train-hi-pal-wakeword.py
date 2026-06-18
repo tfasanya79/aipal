@@ -1,5 +1,9 @@
 #!/usr/bin/env python3
-"""Train a minimal openWakeWord-compatible hi_pal_v0.1.onnx model (Apache-2.0 toolchain)."""
+"""Train a minimal openWakeWord-compatible hi_pal_v0.1.onnx model (Apache-2.0 toolchain).
+
+Use a dedicated training venv (e.g. apps/api/.venv-train) with torch/openwakeword.
+Do not install training deps into apps/api/.venv — that venv is for API pytest/deploy only.
+"""
 from __future__ import annotations
 
 import os
