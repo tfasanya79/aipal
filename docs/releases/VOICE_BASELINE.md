@@ -1,41 +1,38 @@
-# Voice baseline (locked)
+# Voice + wake freeze
 
-**Status:** PASS  
-**Build:** `2.5.0+38` (Play Internal)  
-**Tester:** Tim (`teems5uk@gmail.com`)  
-**Date:** 2026-06-18  
-**Branch:** `recovery/half-duplex-2.4.1`  
-**Code anchor:** `f3eea7d` (2.4.1+19) + splash boot fix only
+**VOICE_WAKE_FROZEN:** `true` (since 2026-06-18)
 
-## Architecture (production)
+Rollback build **2.5.4+42** restores mobile voice/wake to the **2.5.0+38** known-good path. Build 41 regressions triggered this freeze.
 
-Half-duplex Live voice:
+**Freeze ≠ disable:** Half-duplex Live voice and wake-word ("Hi Pal") remain **fully enabled** and must behave identically to build 38. The freeze only blocks **code changes** to voice/wake paths — not product functionality.
 
-- `LiveVoiceLoop` → AAC m4a segments → `POST /turn/audio` → STT → brain → TTS
-- Mic paused during TTS playback (turn-taking)
-- No `LiveVoiceSession`, no PCM WebSocket streaming, no `LIVE_VOICE_V2`
+## Allowed while frozen
 
-Latency is non-streaming (batch upload per utterance). Accepted for baseline.
+- Docs, Today UI, brain/prompts, schema migrations, infra, modular-monolith refactor
+- Text chat and plan-draft flows
+- Session export for **text** turns only (no logger on live/wake hot path)
 
-## Acceptance criteria (passed)
+## Forbidden until explicit unfreeze
 
-| Check | Result |
+- `apps/mobile/lib/providers/app_state.dart` — `toggleLive`, `_handleVoiceSegment`, `syncWakeListener`, `_syncAndroidBackgroundWake`, wake handlers
+- `apps/mobile/lib/services/live_voice_loop_io.dart`
+- `apps/mobile/lib/services/wake_*.dart` (behavior changes)
+- `LIVE_VOICE_V2` / `liveVoiceV2` / `LiveVoiceSession` / `voice_turn.py` runtime enablement
+- Any VAD threshold, PCM, or full-duplex experiments
+
+## Unfreeze process
+
+1. User says **unfreeze** in writing
+2. One hypothesis per Play build
+3. Device QA pass on same hardware before merging
+
+## Baseline reference
+
+| Field | Value |
 |-------|--------|
-| Tap orb → greeting → speak → spoken reply | PASS |
-| Resting → "Hi Pal" → enters Live | PASS |
+| Last known good | `2.5.0+38` |
+| Rollback ship | `2.5.4+42` (voice-identical to 38) |
+| Code anchor | `f3eea7d` + splash boot fix |
+| Architecture | Half-duplex AAC → `POST /turn/audio` |
 
-## Do not touch (without new ADR + device QA)
-
-- `apps/mobile/lib/services/live_voice_loop_io.dart` — AAC + `getAmplitude()` VAD
-- `toggleLive()` / `_handleVoiceSegment()` voice path in `app_state.dart`
-- `LiveVoiceSession`, `pcm_stream_recorder`, `voice_turn.py`
-- `LIVE_VOICE_V2` / `liveVoiceV2` flags
-- Builds 35–37 mic-handoff / PCM VAD experiments
-
-## Full-duplex v2
-
-Paused. See [`../decisions/live-voice-v2.md`](../decisions/live-voice-v2.md).
-
-## Recovery history
-
-See [`HALF_DUPLEX_RECOVERY.md`](HALF_DUPLEX_RECOVERY.md).
+See also [`HALF_DUPLEX_RECOVERY.md`](HALF_DUPLEX_RECOVERY.md), [`../decisions/live-voice-v2.md`](../decisions/live-voice-v2.md).

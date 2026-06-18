@@ -1,0 +1,15 @@
+[Unit]
+Description=AIpal background job worker
+After=network.target postgresql.service aipal-v2.service
+
+[Service]
+Type=simple
+User={{ aipal_service_user }}
+WorkingDirectory={{ aipal_v2_deploy_dir }}/apps/api
+EnvironmentFile=-/etc/default/aipal-v2
+ExecStart={{ aipal_v2_deploy_dir }}/apps/api/.venv/bin/python scripts/worker.py
+Restart=on-failure
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target

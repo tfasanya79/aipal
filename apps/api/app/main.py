@@ -4,11 +4,14 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from .config import get_settings
-from .db import async_session, init_db
-from .routers import auth, calendar, daily, integrations, profile, sessions, tasks, turn, ws_session
-from .schemas import HealthResponse
-from .services import session_events as sess_svc
+from app.modules.auth import profile_router, router as auth_router
+from app.modules.integrations import calendar_router, router as integrations_router
+from app.modules.today import daily_router, tasks_router
+from app.modules.voice import router as turn_router, sessions_router, ws_router
+from app.modules.voice import session_events as sess_svc
+from app.shared.config import get_settings
+from app.shared.db import async_session, init_db
+from app.shared.schemas import HealthResponse
 
 log = logging.getLogger("aipal")
 settings = get_settings()
@@ -35,15 +38,15 @@ app.add_middleware(
 )
 
 prefix = "/api/v2"
-app.include_router(auth.router, prefix=prefix)
-app.include_router(profile.router, prefix=prefix)
-app.include_router(tasks.router, prefix=prefix)
-app.include_router(daily.router, prefix=prefix)
-app.include_router(turn.router, prefix=prefix)
-app.include_router(sessions.router, prefix=prefix)
-app.include_router(calendar.router, prefix=prefix)
-app.include_router(integrations.router, prefix=prefix)
-app.include_router(ws_session.router, prefix=prefix)
+app.include_router(auth_router, prefix=prefix)
+app.include_router(profile_router, prefix=prefix)
+app.include_router(tasks_router, prefix=prefix)
+app.include_router(daily_router, prefix=prefix)
+app.include_router(turn_router, prefix=prefix)
+app.include_router(sessions_router, prefix=prefix)
+app.include_router(calendar_router, prefix=prefix)
+app.include_router(integrations_router, prefix=prefix)
+app.include_router(ws_router, prefix=prefix)
 
 
 @app.get("/api/v2/health", response_model=HealthResponse)
