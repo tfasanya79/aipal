@@ -1,3 +1,4 @@
+import asyncio
 import logging
 from contextlib import asynccontextmanager
 
@@ -9,12 +10,27 @@ from app.modules.integrations import calendar_router, router as integrations_rou
 from app.modules.today import daily_router, tasks_router
 from app.modules.voice import router as turn_router, sessions_router, ws_router
 from app.modules.voice import session_events as sess_svc
+from app.modules.voice.stt import prewarm_model
 from app.shared.config import get_settings
 from app.shared.db import async_session, init_db
 from app.shared.schemas import HealthResponse
 
 log = logging.getLogger("aipal")
 settings = get_settings()
+
+if not logging.getLogger().handlers:
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s %(levelname)s %(name)s %(message)s",
+    )
+
+
+async def _prewarm_whisper() -> None:
+    """Load faster-whisper at startup so the first half-duplex turn is not blocked."""
+    try:
+        await asyncio.to_thread(prewarm_model)
+    except Exception:
+        log.exception("Whisper STT pre-warm failed; first turn may be slow")
 
 
 @asynccontextmanager
@@ -24,6 +40,7 @@ async def lifespan(app: FastAPI):
         deleted = await sess_svc.cleanup_old_events(db)
         if deleted:
             log.info("Cleaned up %d old session events", deleted)
+    await _prewarm_whisper()
     log.info("AIpal API v2 started")
     yield
 

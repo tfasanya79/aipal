@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import subprocess
 import tempfile
 from functools import lru_cache
@@ -10,6 +11,8 @@ from typing import Any
 
 from app.shared.config import get_settings
 
+log = logging.getLogger("aipal.stt")
+
 
 @lru_cache
 def _get_model() -> Any:
@@ -17,6 +20,13 @@ def _get_model() -> Any:
 
     settings = get_settings()
     return WhisperModel(settings.whisper_model, device="cpu", compute_type="int8")
+
+
+def prewarm_model() -> None:
+    """Load Whisper into memory (call once at API startup)."""
+    _get_model()
+    settings = get_settings()
+    log.info("Whisper STT pre-warmed (model=%s device=cpu)", settings.whisper_model)
 
 
 def _ffmpeg_to_wav16_mono(path: str) -> str:
