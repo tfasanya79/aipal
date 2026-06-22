@@ -259,6 +259,7 @@ async def _reply_for_text(
         about_me=user.about_me,
         local_day=local_day,
         local_now=local_now,
+        timezone=tz,
         today_snap=today_snap,
         companion=companion,
         tool_actions=tool_actions,

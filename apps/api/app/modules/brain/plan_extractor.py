@@ -49,6 +49,8 @@ Rules:
 - title MUST be 1-4 words, concise (e.g. "Bedtime", "Team meeting", "Swim") — never full sentences.
 - Put the user's original phrasing in notes when helpful.
 - If user mentions specific times (e.g. 2:30pm, 4pm, 16:00), set due_at for today using their timezone offset — not Z/UTC unless user explicitly means UTC.
+- A single booking request (e.g. "book a 7pm appointment") must produce exactly ONE proposed_task.
+- When user says 7pm in the afternoon/evening, never schedule 7am.
 - For meetings/calls/appointments with a time but no stated duration, set estimated_minutes to null and ask one clarifying_question about duration.
 - For simple reminders without a fixed end time, estimated_minutes may be 30.
 - priority: 0=low, 1=medium, 2=high
@@ -152,6 +154,89 @@ async def extract_plan(
         return _regex_fallback(user_message, today, tz)
 
 
+def _local_hour_from_due_str(due_str: str | None, tz: ZoneInfo) -> int | None:
+    if not due_str:
+        return None
+    try:
+        dt = datetime.fromisoformat(str(due_str).replace("Z", "+00:00"))
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=tz)
+        return dt.astimezone(tz).hour
+    except ValueError:
+        return None
+
+
+def _extract_explicit_pm_hours(msg: str) -> set[int]:
+    hours: set[int] = set()
+    for m in re.finditer(r"(\d{1,2})\s*(?::(\d{2}))?\s*pm", msg, re.IGNORECASE):
+        h = int(m.group(1))
+        hours.add(12 if h == 12 else (h + 12 if h < 12 else h))
+    if re.search(r"\b(seven|7)\s*(pm|p\.m\.)", msg, re.IGNORECASE):
+        hours.add(19)
+    return hours
+
+
+def _fix_pm_confusion(tasks: list[dict], user_message: str, tz: ZoneInfo) -> list[dict]:
+    """Correct 7am tasks when user clearly asked for 7pm."""
+    if not _extract_explicit_pm_hours(user_message):
+        return tasks
+    out: list[dict] = []
+    for t in tasks:
+        due_str = t.get("due_at")
+        if not due_str:
+            out.append(t)
+            continue
+        try:
+            dt = datetime.fromisoformat(str(due_str).replace("Z", "+00:00"))
+            local = dt.astimezone(tz) if dt.tzinfo else dt.replace(tzinfo=tz)
+            if local.hour == 7 and local.minute == 0:
+                item = dict(t)
+                item["due_at"] = local.replace(hour=19).isoformat()
+                out.append(item)
+                continue
+        except ValueError:
+            pass
+        out.append(t)
+    return out
+
+
+def _pick_best_booking(tasks: list[dict], user_message: str) -> dict:
+    msg = user_message.lower()
+    best = tasks[0]
+    best_score = -999
+    for t in tasks:
+        score = 0
+        title = str(t.get("title", "")).lower()
+        if title and title in msg:
+            score += 10
+        if re.search(r"\b(appointment|meeting|dinner|open)\b", title):
+            score += 2
+        if title in ("meal", "appointment"):
+            score -= 1
+        if score > best_score:
+            best_score = score
+            best = t
+    return best
+
+
+def _collapse_single_booking(tasks: list[dict], user_message: str, tz: ZoneInfo) -> list[dict]:
+    """Keep one task when user asked for a single PM appointment."""
+    if len(tasks) <= 1:
+        return tasks
+    pm_hours = _extract_explicit_pm_hours(user_message)
+    if not pm_hours:
+        return tasks
+    matched = [t for t in tasks if _local_hour_from_due_str(t.get("due_at"), tz) in pm_hours]
+    if len(matched) == 1:
+        return matched
+    if len(matched) > 1:
+        return [_pick_best_booking(matched, user_message)]
+    afternoon = [t for t in tasks if (_local_hour_from_due_str(t.get("due_at"), tz) or 0) >= 12]
+    if afternoon and len(afternoon) < len(tasks):
+        return afternoon if len(afternoon) > 1 else afternoon
+    return tasks
+
+
 def _normalize_plan(raw: dict, today: date, tz: ZoneInfo, user_message: str = "") -> dict:
     intent = raw.get("intent") or "other"
     tasks = raw.get("proposed_tasks") or []
@@ -186,6 +271,9 @@ def _normalize_plan(raw: dict, today: date, tz: ZoneInfo, user_message: str = ""
                 "category": t.get("category"),
             }
         )
+
+    normalized = _fix_pm_confusion(normalized, user_message, tz)
+    normalized = _collapse_single_booking(normalized, user_message, tz)
 
     clarifying = raw.get("clarifying_question")
     if not clarifying:
@@ -253,6 +341,8 @@ def _regex_fallback(user_message: str, today: date, tz: ZoneInfo) -> dict:
     clarifying = None
     if tasks and any(t["estimated_minutes"] is None for t in tasks):
         clarifying = f"How long is your {tasks[0]['title'].lower()}?"
+    tasks = _fix_pm_confusion(tasks, user_message, tz)
+    tasks = _collapse_single_booking(tasks, user_message, tz)
     return {
         "intent": "plan_day" if tasks else "other",
         "proposed_tasks": tasks,

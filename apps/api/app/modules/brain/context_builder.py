@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import date, datetime
+from zoneinfo import ZoneInfo
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -63,12 +64,54 @@ def _time_period(hour: int) -> str:
     return "evening"
 
 
+def _format_due_local(due_at: datetime | None, timezone: str) -> str:
+    if due_at is None:
+        return "no time set"
+    try:
+        tz = ZoneInfo(timezone or "UTC")
+    except Exception:
+        tz = ZoneInfo("UTC")
+    local = due_at.astimezone(tz) if due_at.tzinfo else due_at.replace(tzinfo=tz)
+    return local.strftime("%I:%M %p").lstrip("0")
+
+
+def format_today_schedule_block(today_snap: TodayViewResponse, timezone: str) -> str:
+    """Authoritative open-task schedule in the user's local timezone."""
+    lines: list[str] = []
+    seen: set[int] = set()
+    for tasks in (today_snap.sections.now, today_snap.sections.upcoming):
+        for t in tasks:
+            if t.status in ("done", "skipped") or t.id in seen:
+                continue
+            seen.add(t.id)
+            est = f", {t.estimated_minutes} min" if t.estimated_minutes else ""
+            lines.append(f"- {t.title} at {_format_due_local(t.due_at, timezone)}{est}")
+    if not lines:
+        return "Today's schedule (local times): no timed open tasks."
+    return (
+        "Today's schedule (local times — authoritative; never quote UTC or invent times):\n"
+        + "\n".join(lines)
+    )
+
+
+def _parse_due(raw) -> datetime | None:
+    if raw is None:
+        return None
+    if isinstance(raw, datetime):
+        return raw
+    try:
+        return datetime.fromisoformat(str(raw).replace("Z", "+00:00"))
+    except ValueError:
+        return None
+
+
 def format_system_context(
     *,
     wake: str,
     about_me: str | None,
     local_day: date,
     local_now: datetime | None = None,
+    timezone: str = "UTC",
     today_snap: TodayViewResponse,
     companion: CompanionContext,
     tool_actions: list[str],
@@ -94,6 +137,7 @@ def format_system_context(
         )
     else:
         system_ctx += f"\nToday ({local_day.isoformat()}): {open_count} open task(s). No up-next scheduled."
+    system_ctx += f"\n{format_today_schedule_block(today_snap, timezone)}"
     if companion.calendar_block:
         system_ctx += f"\n{companion.calendar_block}"
     if companion.mem_block:
@@ -110,7 +154,9 @@ def format_system_context(
         system_ctx += "\nBooking status: draft_pending (not on Today until user confirms)."
     if pending and pending.get("proposed_tasks") and not _draft_mentioned_in_history(history):
         tasks_desc = "; ".join(
-            f"{t['title']}" + (f" at {t['due_at']}" if t.get("due_at") else "")
+            f"{t['title']} at {_format_due_local(_parse_due(t.get('due_at')), timezone)}"
+            if t.get("due_at")
+            else f"{t['title']}"
             for t in pending["proposed_tasks"]
         )
         system_ctx += (
@@ -119,4 +165,31 @@ def format_system_context(
         )
     if extracted.get("clarifying_question"):
         system_ctx += f"\nClarify: {extracted['clarifying_question']}"
+    # #region agent log
+    try:
+        import json
+        import time
+
+        with open("/home/dev/.cursor/debug-60ce92.log", "a", encoding="utf-8") as f:
+            f.write(
+                json.dumps(
+                    {
+                        "sessionId": "60ce92",
+                        "hypothesisId": "H7",
+                        "location": "context_builder.py:format_system_context",
+                        "message": "schedule_in_context",
+                        "data": {
+                            "timezone": timezone,
+                            "local_now": local_now.isoformat() if local_now else None,
+                            "schedule": format_today_schedule_block(today_snap, timezone)[:300],
+                        },
+                        "timestamp": int(time.time() * 1000),
+                        "runId": "post-fix",
+                    }
+                )
+                + "\n"
+            )
+    except OSError:
+        pass
+    # #endregion
     return system_ctx
