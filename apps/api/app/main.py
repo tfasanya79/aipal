@@ -37,25 +37,6 @@ async def _prewarm_whisper() -> None:
         log.exception("Whisper STT pre-warm failed; first turn may be slow")
 
 
-async def _prewarm_whisper() -> None:
-    """Load faster-whisper at startup so first Live turn is not blocked on HF download."""
-    if not settings.live_voice_v2:
-        return
-    if (settings.stt_provider or "").lower() != "whisper_stream":
-        return
-    try:
-        from .stt import _get_model
-
-        await asyncio.to_thread(_get_model)
-        log.info(
-            "Whisper STT pre-warmed (model=%s device=%s)",
-            settings.whisper_model,
-            settings.whisper_device,
-        )
-    except Exception:
-        log.exception("Whisper STT pre-warm failed; first turn may be slow")
-
-
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     await init_db()
