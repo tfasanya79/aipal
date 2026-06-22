@@ -447,8 +447,6 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
-  bool _shouldSuppressLiveVad() => _processingTurn;
-
   bool _isSpeakingForVad() => _speaking;
 
   bool _shouldSuppressWake() =>
@@ -459,8 +457,10 @@ class AppState extends ChangeNotifier {
     if (liveSession.state == LiveState.resting) {
       final loop = LiveVoiceLoop(
         onSegment: _handleVoiceSegment,
-        shouldSuppress: _shouldSuppressLiveVad,
+        shouldSuppress: () => false,
         isSpeakingForVad: _isSpeakingForVad,
+        thresholdDb: -45.0,
+        thresholdDbSpeaking: -32.0,
         onSpeechStart: () {
           if (_speaking) {
             _turnGeneration++;
