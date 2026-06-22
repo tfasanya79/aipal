@@ -45,8 +45,7 @@ _HONEST_NOT_ADDED = (
 
 
 def _agent_debug(hypothesis_id: str, location: str, message: str, data: dict, run_id: str = "pre-fix") -> None:
-    if os.environ.get("AGENT_DEBUG") != "1":
-        return
+    # #region agent log
     try:
         entry = {
             "sessionId": "60ce92",
@@ -60,7 +59,9 @@ def _agent_debug(hypothesis_id: str, location: str, message: str, data: dict, ru
         with open(DEBUG_LOG, "a", encoding="utf-8") as f:
             f.write(json.dumps(entry) + "\n")
     except OSError:
-        log.info("AGENT_DEBUG %s", json.dumps(entry))
+        if os.environ.get("AGENT_DEBUG") == "1":
+            log.info("AGENT_DEBUG %s", json.dumps(entry))
+    # #endregion
 
 
 def _draft_to_schema(payload: dict | None) -> PlanDraftResponse | None:
@@ -365,10 +366,21 @@ async def audio_turn(
             "stt_empty",
             payload={"bytes": len(raw), "stt_ms": stt_ms},
         )
+        reply = "I did not catch that clearly. Try one short sentence near the microphone."
+        # #region agent log
+        _agent_debug(
+            "H2",
+            "audio_turn.stt_empty",
+            {"bytes": len(raw), "stt_ms": stt_ms, "session_id": sid},
+        )
+        # #endregion
+        audio_bytes, audio_mime = await synthesize(reply)
         return AudioTurnResponse(
             transcript="",
-            reply="I did not catch that clearly. Try one short sentence near the microphone.",
+            reply=reply,
             session_id=sid,
+            audio_base64=base64.b64encode(audio_bytes).decode("ascii") if audio_bytes else None,
+            audio_mime=audio_mime if audio_bytes else None,
         )
 
     t_reply = time.monotonic()
@@ -376,6 +388,19 @@ async def audio_turn(
         db, user, transcript.strip(), sid, channel="audio"
     )
     reply_ms = int((time.monotonic() - t_reply) * 1000)
+    # #region agent log
+    _agent_debug(
+        "H3",
+        "audio_turn.stt_ok",
+        {
+            "bytes": len(raw),
+            "transcript_len": len(transcript.strip()),
+            "reply_len": len(reply),
+            "stt_ms": stt_ms,
+            "session_id": sid,
+        },
+    )
+    # #endregion
 
     draft_confirmed = bool(
         tool_actions and any(a.startswith("Confirmed plan:") for a in tool_actions)
