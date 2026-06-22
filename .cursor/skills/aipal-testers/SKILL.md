@@ -10,6 +10,8 @@ description: >-
 
 Use this skill **after a deploy** to produce a short brief for human testers (Play Internal, sideload APK, or web `/app/`).
 
+**Scope:** post-deploy human verification only. Pre-ship automated gates (pytest, `flutter test`, smoke) live in `release-qa-agent`.
+
 ## When to use
 
 - `./scripts/deploy-all.sh` completed successfully
@@ -21,7 +23,7 @@ Use this skill **after a deploy** to produce a short brief for human testers (Pl
 ```markdown
 # AiPal tester brief — [VERSION] — [DATE]
 
-**Build:** [e.g. 2.1.2+13]  
+**Build:** [e.g. 2.4.3+21]  
 **Install:** Play Internal opt-in link OR [APK URL] OR https://[host]/app/
 
 ## What changed
@@ -29,15 +31,16 @@ Use this skill **after a deploy** to produce a short brief for human testers (Pl
 
 ## Please test (15 min)
 
-1. **Login** — email dev flow; confirm name on Companion.
-2. **Text plan** — "meeting at 4pm and swimming at 6pm" → confirm card → **Today** shows both with short titles and times.
-3. **Voice plan** — Live: "remind me to go to bed at 8pm" → confirm card shows **Bedtime · 8:00 PM** (not a long sentence title).
-4. **Follow-up** — same chat: "move swim to 7" → AiPal remembers; no re-greeting.
-5. **Nudge** — add task due in ~15 min → ~12 min before, notification + spoken nudge on Companion if app open.
-6. **Live** — tap orb once → speak one sentence → hear reply. Greeting should mention your day if tasks exist.
-7. **Today** — priority lanes, suggest routines, focus timer on a task.
-8. **Settings** — build number matches [VERSION].
-9. **Background wake (Android)** — enable "Listen for Hi Pal" → confirm listening notification → switch to Today or home screen → say "Hi Pal" → app opens and goes Live.
+1. **Onboarding** — clear app data → email screen stays until valid email + Continue → profile completes without crash.
+2. **Login** — email dev flow; confirm name on Companion.
+3. **Text plan** — "meeting at 4pm and swimming at 6pm" → confirm card → **Today** shows both with short titles and times.
+4. **Voice plan** — Live: "remind me to go to bed at 8pm" → confirm card shows **Bedtime · 8:00 PM** (not a long sentence title).
+5. **Follow-up** — same chat: "move swim to 7" → AiPal remembers; no re-greeting.
+6. **Nudge** — add task due in ~15 min → ~12 min before, notification + spoken nudge on Companion if app open.
+7. **Live v2 duplex** — tap orb → speak → hear streaming reply through WS; barge-in during TTS cancels playback.
+8. **Today** — priority lanes, suggest routines, focus timer on a task.
+9. **Settings** — build number matches [VERSION].
+10. **Background wake (Android)** — enable "Listen for Hi Pal" → confirm listening notification → switch to Today or home screen → say "Hi Pal" → app opens and goes Live.
 
 ## Known limits
 - Wake word **Hi Pal** (Android): Settings opt-in; ongoing notification while listening; swipe-kill stops service.

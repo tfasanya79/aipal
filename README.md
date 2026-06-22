@@ -2,7 +2,7 @@
 
 **AiPal** is a voice-first companion: users talk naturally; AiPal understands, proposes concise plans for **Today**, asks once to confirm, and nudges before commitments.
 
-**Current version:** `2.4.0+18` (see [`apps/mobile/pubspec.yaml`](apps/mobile/pubspec.yaml))  
+**Current version:** `2.4.3+21` (see [`apps/mobile/pubspec.yaml`](apps/mobile/pubspec.yaml))  
 **Product status:** [`docs/PRODUCT.md`](docs/PRODUCT.md)
 
 ---
@@ -14,7 +14,7 @@
 | **Mobile / Web** | [Flutter](https://flutter.dev) (Dart), Provider, package `io.aipal.mvp` |
 | **API** | [FastAPI](https://fastapi.tiangolo.com) (Python 3.12), REST + WebSocket Live voice |
 | **Database** | PostgreSQL, SQLAlchemy async |
-| **AI / voice** | DeepSeek LLM; faster-whisper (STT); edge-tts (TTS) |
+| **AI / voice** | DeepSeek LLM; self-hosted streaming Whisper STT (dev/staging default); edge-tts (TTS). Production public scale: evaluate managed STT per [ADR](docs/decisions/live-voice-v2.md) |
 | **Memory** | mem0 (optional long-term user memory) |
 | **Wake word** | OpenWakeWord on-device (“Hi Pal”); Android background foreground service (C2) |
 | **Infra** | Tencent VM, Caddy HTTPS, Ansible deploy; GitHub Actions CI |

@@ -15,6 +15,10 @@ from app.shared.config import get_settings
 from app.shared.db import async_session, init_db
 from app.shared.schemas import HealthResponse
 
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s %(levelname)s %(name)s %(message)s",
+)
 log = logging.getLogger("aipal")
 settings = get_settings()
 
@@ -29,6 +33,25 @@ async def _prewarm_whisper() -> None:
     """Load faster-whisper at startup so the first half-duplex turn is not blocked."""
     try:
         await asyncio.to_thread(prewarm_model)
+    except Exception:
+        log.exception("Whisper STT pre-warm failed; first turn may be slow")
+
+
+async def _prewarm_whisper() -> None:
+    """Load faster-whisper at startup so first Live turn is not blocked on HF download."""
+    if not settings.live_voice_v2:
+        return
+    if (settings.stt_provider or "").lower() != "whisper_stream":
+        return
+    try:
+        from .stt import _get_model
+
+        await asyncio.to_thread(_get_model)
+        log.info(
+            "Whisper STT pre-warmed (model=%s device=%s)",
+            settings.whisper_model,
+            settings.whisper_device,
+        )
     except Exception:
         log.exception("Whisper STT pre-warm failed; first turn may be slow")
 

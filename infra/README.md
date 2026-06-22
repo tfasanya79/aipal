@@ -26,8 +26,8 @@ ansible-playbook -i inventory.ini playbooks/deploy.yml
 
 ## Handsfree demo notes
 
-- Primary stakeholder narrative is Go Live handsfree flow.
-- Push-to-talk may exist temporarily as fallback while reliability hardening continues.
+- Primary stakeholder narrative is **Live Voice v2** full-duplex on Companion (tap orb or say Hi Pal).
+- Text mode uses REST `/turn/text`; Live uses duplex WebSocket (`LIVE_VOICE_V2=true` on API).
 - For iPhone/browser tests, use a fresh tab/session when switching domains to avoid stale PWA/service worker state.
 
 ## Notes
