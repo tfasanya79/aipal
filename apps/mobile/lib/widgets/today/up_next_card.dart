@@ -9,12 +9,14 @@ class UpNextCard extends StatelessWidget {
     this.onStartFocus,
     this.onDone,
     this.onBreakdown,
+    this.onEdit,
   });
 
   final Map<String, dynamic> task;
   final VoidCallback? onStartFocus;
   final VoidCallback? onDone;
   final VoidCallback? onBreakdown;
+  final VoidCallback? onEdit;
 
   @override
   Widget build(BuildContext context) {
@@ -61,6 +63,12 @@ class UpNextCard extends StatelessWidget {
                   label: const Text('Start focus'),
                 ),
                 OutlinedButton(onPressed: onDone, child: const Text('Done')),
+                if (onEdit != null)
+                  TextButton.icon(
+                    onPressed: onEdit,
+                    icon: const Icon(Icons.edit_outlined, size: 18),
+                    label: const Text('Edit'),
+                  ),
                 if (subs.isEmpty && onBreakdown != null)
                   TextButton(onPressed: onBreakdown, child: const Text('Break down')),
               ],

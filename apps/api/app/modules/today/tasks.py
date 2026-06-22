@@ -1,6 +1,7 @@
 import re
 import uuid
-from datetime import UTC, date, datetime, timedelta
+from datetime import UTC, date, datetime, time, timedelta
+from zoneinfo import ZoneInfo
 
 from sqlalchemy import and_, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -10,13 +11,18 @@ from app.shared.schemas import TaskCreate, TaskSummary, TodaySections, TodayView
 from app.shared.timezone_util import user_local_today
 
 
-def _day_bounds(day: date) -> tuple[datetime, datetime]:
-    start = datetime.combine(day, datetime.min.time()).replace(tzinfo=UTC)
-    return start, start + timedelta(days=1)
+def _day_bounds(day: date, timezone: str = "UTC") -> tuple[datetime, datetime]:
+    try:
+        tz = ZoneInfo(timezone or "UTC")
+    except Exception:
+        tz = ZoneInfo("UTC")
+    start = datetime.combine(day, time.min, tzinfo=tz).astimezone(UTC)
+    end = datetime.combine(day + timedelta(days=1), time.min, tzinfo=tz).astimezone(UTC)
+    return start, end
 
 
-def _task_on_day_clause(day: date):
-    start, end = _day_bounds(day)
+def _task_on_day_clause(day: date, timezone: str = "UTC"):
+    start, end = _day_bounds(day, timezone)
     return or_(
         and_(Task.due_at.is_not(None), Task.due_at >= start, Task.due_at < end),
         and_(Task.due_at.is_(None), Task.created_at >= start, Task.created_at < end),
@@ -36,6 +42,7 @@ async def list_tasks(
     day: date | None = None,
     status: str | None = None,
     top_level_only: bool = True,
+    timezone: str = "UTC",
 ) -> list[Task]:
     q = select(Task).where(Task.user_id == user_id)
     if top_level_only:
@@ -43,7 +50,7 @@ async def list_tasks(
     if status:
         q = q.where(Task.status == status)
     if day:
-        q = q.where(_task_on_day_clause(day))
+        q = q.where(_task_on_day_clause(day, timezone))
     result = await db.execute(q)
     tasks = list(result.scalars().all())
     tasks.sort(key=_sort_key)
@@ -156,14 +163,19 @@ async def reorder_tasks(db: AsyncSession, user_id: uuid.UUID, ordered_ids: list[
     await db.commit()
 
 
-async def defer_open_tasks(db: AsyncSession, user_id: uuid.UUID, day: date) -> int:
-    tasks = await list_tasks(db, user_id, day=day, top_level_only=True)
-    tomorrow = datetime.combine(day + timedelta(days=1), datetime.min.time()).replace(tzinfo=UTC)
+async def defer_open_tasks(db: AsyncSession, user_id: uuid.UUID, day: date, *, timezone: str = "UTC") -> int:
+    tasks = await list_tasks(db, user_id, day=day, top_level_only=True, timezone=timezone)
+    try:
+        tz = ZoneInfo(timezone or "UTC")
+    except Exception:
+        tz = ZoneInfo("UTC")
+    tomorrow_local = datetime.combine(day + timedelta(days=1), time(hour=9), tzinfo=tz)
+    tomorrow = tomorrow_local.astimezone(UTC)
     count = 0
     for task in tasks:
         if task.status in ("planned", "in_progress"):
             task.status = "deferred"
-            task.due_at = tomorrow + timedelta(hours=9)
+            task.due_at = tomorrow
             count += 1
     await db.commit()
     return count
@@ -189,10 +201,10 @@ def task_to_dict(task: Task, subtasks: list[Task] | None = None) -> dict:
     }
 
 
-async def today_view(db: AsyncSession, user_id: uuid.UUID, day: date) -> TodayViewResponse:
+async def today_view(db: AsyncSession, user_id: uuid.UUID, day: date, *, timezone: str = "UTC") -> TodayViewResponse:
     from app.shared.schemas import TaskResponse
 
-    all_tasks = await list_tasks(db, user_id, day=day, top_level_only=True)
+    all_tasks = await list_tasks(db, user_id, day=day, top_level_only=True, timezone=timezone)
     parent_ids = [t.id for t in all_tasks]
     sub_map = await _load_subtasks(db, user_id, parent_ids)
 
@@ -209,7 +221,7 @@ async def today_view(db: AsyncSession, user_id: uuid.UUID, day: date) -> TodayVi
     elif upcoming:
         up_next = upcoming[0]
 
-    summary = await task_summary(db, user_id, day)
+    summary = await task_summary(db, user_id, day, timezone=timezone)
     return TodayViewResponse(
         summary=summary,
         up_next=up_next,
@@ -220,10 +232,10 @@ async def today_view(db: AsyncSession, user_id: uuid.UUID, day: date) -> TodayVi
 async def task_summary(
     db: AsyncSession, user_id: uuid.UUID, day: date, *, timezone: str = "UTC"
 ) -> TaskSummary:
-    start, end = _day_bounds(day)
+    start, end = _day_bounds(day, timezone)
     result = await db.execute(
         select(Task.status, func.count())
-        .where(Task.user_id == user_id, Task.parent_task_id.is_(None), _task_on_day_clause(day))
+        .where(Task.user_id == user_id, Task.parent_task_id.is_(None), _task_on_day_clause(day, timezone))
         .group_by(Task.status)
     )
     counts = dict(result.all())
@@ -248,7 +260,7 @@ async def _completion_streak(db: AsyncSession, user_id: uuid.UUID, timezone: str
     streak = 0
     day = user_local_today(timezone)
     for _ in range(30):
-        start, end = _day_bounds(day)
+        start, end = _day_bounds(day, timezone)
         result = await db.execute(
             select(func.count()).where(
                 Task.user_id == user_id,
@@ -278,7 +290,7 @@ async def apply_task_tools_from_text(
     day = user_local_today(timezone)
 
     if "what's left" in t or "what is left" in t or "open tasks" in t:
-        tasks = await list_tasks(db, user_id, day=day)
+        tasks = await list_tasks(db, user_id, day=day, timezone=timezone)
         open_tasks = [x for x in tasks if x.status in ("planned", "in_progress")]
         if open_tasks:
             actions.append("Open: " + ", ".join(x.title for x in open_tasks[:6]))
@@ -293,7 +305,7 @@ async def apply_task_tools_from_text(
     for pattern in completion_patterns:
         if m := re.search(pattern, t):
             needle = m.group(1).strip().lower().rstrip(".")
-            tasks = await list_tasks(db, user_id, day=day)
+            tasks = await list_tasks(db, user_id, day=day, timezone=timezone)
             for task in tasks:
                 if task.status in ("done", "skipped"):
                     continue
@@ -323,6 +335,8 @@ async def complete_tasks_from_extraction(
     user_id: uuid.UUID,
     extracted: dict,
     day: date,
+    *,
+    timezone: str = "UTC",
 ) -> list[str]:
     """Mark tasks done when plan extractor returns complete_task intent."""
     actions: list[str] = []
@@ -330,7 +344,7 @@ async def complete_tasks_from_extraction(
     titles = [t for t in titles if t]
     if not titles:
         return actions
-    tasks = await list_tasks(db, user_id, day=day)
+    tasks = await list_tasks(db, user_id, day=day, timezone=timezone)
     for title in titles:
         for task in tasks:
             if task.status in ("done", "skipped"):

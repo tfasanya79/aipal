@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 
 import '../providers/app_state.dart';
 import '../widgets/aipal_logo.dart';
+import '../services/device_timezone.dart';
 import '../services/notification_service.dart';
 import 'home_shell.dart';
 
@@ -38,6 +39,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
         'wake_name': _wakeName.text.trim().isEmpty ? 'friend' : _wakeName.text.trim(),
         'display_name': _wakeName.text.trim(),
         'about_me': _about.text.trim(),
+        'timezone': await deviceIanaTimezone(),
         'morning_brief_at': '08:00',
         'evening_recap_at': '20:00',
       });

@@ -33,21 +33,20 @@ class RoutineChips extends StatelessWidget {
             ),
           ),
         ),
-        SizedBox(
-          height: 40,
-          child: ListView.separated(
-            scrollDirection: Axis.horizontal,
-            padding: const EdgeInsets.symmetric(horizontal: 16),
-            itemCount: _routines.length,
-            separatorBuilder: (_, __) => const SizedBox(width: 8),
-            itemBuilder: (context, index) {
-              final r = _routines[index];
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16),
+          child: Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: _routines.map((r) {
               return ActionChip(
+                visualDensity: VisualDensity.compact,
+                materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
                 avatar: Icon(r.icon, size: 16, color: Theme.of(context).colorScheme.primary),
                 label: Text(r.label),
                 onPressed: busy ? null : () => onSelect(r.template),
               );
-            },
+            }).toList(),
           ),
         ),
       ],

@@ -108,7 +108,7 @@ async def today_view(
     db: AsyncSession = Depends(get_db),
 ):
     d = day or user_local_today(user.timezone)
-    return await task_svc.today_view(db, user.id, d)
+    return await task_svc.today_view(db, user.id, d, timezone=user.timezone or "UTC")
 
 
 @router.get("", response_model=list[TaskResponse])
@@ -160,7 +160,7 @@ async def defer_open(
     db: AsyncSession = Depends(get_db),
 ):
     d = day or user_local_today(user.timezone)
-    count = await task_svc.defer_open_tasks(db, user.id, d)
+    count = await task_svc.defer_open_tasks(db, user.id, d, timezone=user.timezone or "UTC")
     return {"deferred": count}
 
 

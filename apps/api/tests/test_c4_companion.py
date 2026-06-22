@@ -1,7 +1,7 @@
 """Phase C4 companion depth tests."""
 
 import uuid
-from datetime import UTC, datetime, timezone
+from datetime import UTC, datetime
 from unittest.mock import AsyncMock, patch
 
 import pytest

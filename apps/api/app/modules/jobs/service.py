@@ -1,7 +1,7 @@
 """Durable job queue (Postgres-backed, same VM worker)."""
 
 import logging
-from datetime import UTC, datetime
+from datetime import datetime
 
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession

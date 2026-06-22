@@ -106,7 +106,7 @@ async def live_greeting(
             if wake_hint and in_live:
                 text = f"{wake_hint} {text}"
             return GreetingResponse(text=text, wake_word_hint=wake_hint)
-        view = await task_svc.today_view(db, user.id, local_day)
+        view = await task_svc.today_view(db, user.id, local_day, timezone=user.timezone or "UTC")
         if view.up_next:
             if in_live:
                 text = (

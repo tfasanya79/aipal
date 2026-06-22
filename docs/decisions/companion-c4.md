@@ -35,6 +35,15 @@ Contributor feedback: shipped QA and architecture skew **planner** (tasks, plans
 - Weekly reflection ritual
 - “Remember when…” surfacing in Companion tab
 
+- Play build **2.5.7+45** ships C4.1 (timezone sync, task edit, routine wrap, duration clarify).
+
+## C4.1 hotfix (build 45)
+
+1. **Local time invariant:** device timezone synced to profile; plan extractor treats UTC/Z as wall-clock in user TZ; Today day bounds use user TZ.
+2. **Duration before draft:** timed meetings/calls without duration → Companion asks in chat; plan draft withheld until duration known.
+3. **User edit:** Today tasks editable for time and duration via bottom sheet (API `PATCH /tasks/{id}`).
+4. **Routine UI:** Suggest routines chips use `Wrap` so labels never clip off-screen.
+
 ## Consequences
 
 - `MEM0_ENABLED=true` required in production env for full C4 benefit.

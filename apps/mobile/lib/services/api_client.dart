@@ -80,6 +80,14 @@ class ApiClient {
     return jsonDecode(r.body) as Map<String, dynamic>;
   }
 
+  Future<Map<String, dynamic>> updateTask(int id, Map<String, dynamic> fields) async {
+    final r = await _patch(
+      Uri.parse('${AppConfig.apiBase}/tasks/$id'),
+      body: jsonEncode(fields),
+    );
+    return jsonDecode(r.body) as Map<String, dynamic>;
+  }
+
   Future<Map<String, dynamic>> fetchTodayView() async {
     final r = await _get(Uri.parse('${AppConfig.apiBase}/tasks/today-view'));
     return jsonDecode(r.body) as Map<String, dynamic>;

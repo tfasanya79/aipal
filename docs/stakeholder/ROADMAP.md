@@ -14,6 +14,7 @@
 | Brain owns Today | Concise titles, confirm-before-commit | C3a shipped |
 | Proactive, not noisy | 12-min nudges with guardrails | C3b shipped |
 | Memory over time | Preferences, patterns, companion context (mem0) | C4 shipped |
+| Local scheduling | User-local times, editable tasks, duration clarify | C4.1 shipped (build 45) |
 | Trust & warmth | Non-clinical, crisis-safe, transparent | Ongoing |
 
 ---

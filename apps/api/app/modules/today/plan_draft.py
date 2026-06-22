@@ -57,7 +57,7 @@ async def _is_duplicate(
     if not due_at:
         return False
     day = user_local_today(timezone)
-    existing = await task_svc.list_tasks(db, user_id, day=day, top_level_only=True)
+    existing = await task_svc.list_tasks(db, user_id, day=day, top_level_only=True, timezone=timezone)
     window = timedelta(minutes=15)
     for t in existing:
         if t.status in ("done", "skipped"):

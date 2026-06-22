@@ -1,7 +1,7 @@
 # AiPal — Deliverables Tracker
 
-**Last audited:** 2026-06-16  
-**App version:** `2.4.1+19` ([`apps/mobile/pubspec.yaml`](../apps/mobile/pubspec.yaml))  
+**Last audited:** 2026-06-22  
+**App version:** `2.5.7+45` ([`apps/mobile/pubspec.yaml`](../apps/mobile/pubspec.yaml))  
 **Canonical phase detail:** [`PRODUCT.md`](PRODUCT.md)  
 **Application code:** this repository  
 **Extended docs hub (dev VM):** `/home/dev/docs` — architecture, backlog, `done/` snapshots (paths below)
@@ -107,6 +107,11 @@ Source: [`PRODUCT.md`](PRODUCT.md)
 | C4-2 | Mood-aware tone (non-clinical) | **Done** | `mood.py` VADER hints |
 | C4-3 | Evening reflection companion line | **Done** | `reflection.py` + review sheet |
 | C4-4 | Light device calendar → brain | **Done** | `device_calendar` sync |
+| C4.1-1 | Device timezone → profile sync | **Done** | `flutter_timezone` + bootstrap |
+| C4.1-2 | Local wall-clock plan times (no +2h) | **Done** | `plan_extractor._localize_due_at` |
+| C4.1-3 | Duration ask before plan draft (meetings) | **Done** | `should_defer_draft` |
+| C4.1-4 | Today task time/duration edit | **Done** | `TaskEditSheet` + PATCH |
+| C4.1-5 | Routine chips responsive wrap | **Done** | `routine_chips.dart` Wrap |
 | C4-2 | Calendar import | **Not started** | Deferred; maps to T-4 |
 
 ### Verification deliverables (regression)

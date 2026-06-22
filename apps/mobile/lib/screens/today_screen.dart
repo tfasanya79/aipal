@@ -7,6 +7,7 @@ import '../widgets/today/focus_timer_bar.dart';
 import '../widgets/today/priority_lanes.dart';
 import '../widgets/today/review_today_sheet.dart';
 import '../widgets/today/routine_chips.dart';
+import '../widgets/today/task_edit_sheet.dart';
 import '../widgets/today/timeline_task_tile.dart';
 import '../widgets/today/today_empty.dart';
 import '../widgets/today/today_header.dart';
@@ -76,6 +77,18 @@ class _TodayScreenState extends State<TodayScreen> {
           state.goToTab(0);
           state.toggleLive();
         },
+      ),
+    );
+  }
+
+  void _editTask(AppState state, Map<String, dynamic> task) {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: const Color(0xFF161B22),
+      builder: (_) => TaskEditSheet(
+        task: task,
+        onSave: (due, mins) => state.updateTaskSchedule(task['id'] as int, due, mins),
       ),
     );
   }
@@ -207,11 +220,13 @@ class _TodayScreenState extends State<TodayScreen> {
                                     onStartFocus: () => state.startFocus(upNext),
                                     onDone: () => state.completeTask(upNext['id'] as int),
                                     onBreakdown: () => state.breakdownTask(upNext['id'] as int),
+                                    onEdit: () => _editTask(state, upNext),
                                   ),
                                 if (now.isNotEmpty) ...[
                                   _sectionLabel('Now'),
                                   ...now.map((t) => TimelineTaskTile(
                                         task: t,
+                                        onTap: () => _editTask(state, t),
                                         onComplete: () => state.completeTask(t['id'] as int),
                                       )),
                                 ],
@@ -220,6 +235,7 @@ class _TodayScreenState extends State<TodayScreen> {
                                   PriorityLanes(
                                     tasks: upcoming,
                                     onComplete: (id) => state.completeTask(id),
+                                    onTap: (t) => _editTask(state, t),
                                     onReorderLane: (priority, oldIndex, newIndex) =>
                                         state.reorderUpcomingLane(upcoming, priority, oldIndex, newIndex),
                                   ),

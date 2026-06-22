@@ -98,7 +98,7 @@ async def test_complete_task_intent_marks_task_done():
         patch("app.routers.turn.task_svc.complete_tasks_from_extraction", new_callable=AsyncMock) as mock_complete,
         patch("app.routers.turn.task_svc.today_view", new_callable=AsyncMock) as mock_view,
     ):
-        from app.schemas import TaskResponse, TaskSummary, TodaySections, TodayViewResponse
+        from app.schemas import TaskSummary, TodaySections, TodayViewResponse
 
         mock_tools.return_value = []
         mock_draft.return_value = None

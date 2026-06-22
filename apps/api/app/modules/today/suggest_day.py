@@ -107,7 +107,7 @@ async def suggest_day(
     except Exception:
         tz = ZoneInfo("UTC")
 
-    tasks = await task_svc.list_tasks(db, user.id, day=today)
+    tasks = await task_svc.list_tasks(db, user.id, day=today, timezone=user.timezone or "UTC")
     open_tasks = [t for t in tasks if t.status in ("planned", "in_progress")]
     open_lines = []
     for t in open_tasks[:8]:
@@ -146,6 +146,6 @@ async def suggest_day(
         if regex.get("proposed_tasks"):
             extracted = regex
 
-    if extracted.get("proposed_tasks"):
+    if extracted.get("proposed_tasks") and not plan_extractor.should_defer_draft(extracted):
         await draft_svc.save_draft(db, user.id, extracted)
     return extracted

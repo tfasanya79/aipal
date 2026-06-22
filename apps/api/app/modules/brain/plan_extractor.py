@@ -1,6 +1,6 @@
 import logging
 import re
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from zoneinfo import ZoneInfo
 
 from app.modules.brain.llm_provider import llm_chat_json
@@ -16,6 +16,10 @@ _COMPLETE_SIGNAL = re.compile(
     r"\b(finished|completed|done with|already did|mark .+ done)\b",
     re.IGNORECASE,
 )
+_EVENT_LIKE = re.compile(
+    r"\b(meeting|call|appointment|interview|standup|sync|event|lunch|dinner)\b",
+    re.IGNORECASE,
+)
 
 
 def needs_plan_extraction(text: str) -> bool:
@@ -25,6 +29,7 @@ def needs_plan_extraction(text: str) -> bool:
         return False
     return bool(_PLAN_SIGNAL.search(t) or _COMPLETE_SIGNAL.search(t))
 
+
 EXTRACT_PROMPT = """You extract daily plans from user messages. Return ONLY valid JSON:
 {
   "intent": "plan_day|check_in|complete_task|other",
@@ -32,8 +37,8 @@ EXTRACT_PROMPT = """You extract daily plans from user messages. Return ONLY vali
     {
       "title": "1-4 word action label",
       "notes": "optional longer context from user",
-      "due_at": "ISO8601 datetime with timezone or null",
-      "estimated_minutes": 30,
+      "due_at": "ISO8601 datetime with timezone offset or null",
+      "estimated_minutes": null,
       "priority": 1,
       "category": "work|health|home|personal|null"
     }
@@ -43,11 +48,48 @@ EXTRACT_PROMPT = """You extract daily plans from user messages. Return ONLY vali
 Rules:
 - title MUST be 1-4 words, concise (e.g. "Bedtime", "Team meeting", "Swim") — never full sentences.
 - Put the user's original phrasing in notes when helpful.
-- If user mentions specific times (e.g. 4pm, 8pm, 16:00), set due_at for today in their timezone.
+- If user mentions specific times (e.g. 2:30pm, 4pm, 16:00), set due_at for today using their timezone offset — not Z/UTC unless user explicitly means UTC.
+- For meetings/calls/appointments with a time but no stated duration, set estimated_minutes to null and ask one clarifying_question about duration.
+- For simple reminders without a fixed end time, estimated_minutes may be 30.
 - priority: 0=low, 1=medium, 2=high
 - Do not invent tasks not mentioned unless user asks to plan their day generally.
 - If only checking in with no tasks, proposed_tasks can be empty.
 """
+
+
+def _localize_due_at(due_dt: datetime, tz: ZoneInfo) -> datetime:
+    """Treat naive or UTC/Z timestamps as wall-clock in the user's timezone."""
+    if due_dt.tzinfo is None:
+        return due_dt.replace(tzinfo=tz)
+    if due_dt.utcoffset() == timedelta(0):
+        return due_dt.replace(tzinfo=None).replace(tzinfo=tz)
+    return due_dt
+
+
+def _is_timed_event(title: str, notes: str | None, due_dt: datetime | None) -> bool:
+    if not due_dt:
+        return False
+    blob = f"{title} {notes or ''}"
+    return bool(_EVENT_LIKE.search(blob))
+
+
+def _parse_estimated_minutes(raw_val, *, is_event: bool) -> int | None:
+    if raw_val is None or raw_val == "":
+        return None if is_event else 30
+    try:
+        return int(raw_val)
+    except (TypeError, ValueError):
+        return None if is_event else 30
+
+
+def should_defer_draft(extracted: dict) -> bool:
+    """Hold plan draft until timed events have a duration (companion asks in chat first)."""
+    if not extracted.get("clarifying_question"):
+        return False
+    for t in extracted.get("proposed_tasks") or []:
+        if t.get("due_at") and t.get("estimated_minutes") is None:
+            return True
+    return False
 
 
 def _compact_title(title: str, notes: str | None = None) -> tuple[str, str | None]:
@@ -123,8 +165,7 @@ def _normalize_plan(raw: dict, today: date, tz: ZoneInfo, user_message: str = ""
         if due and isinstance(due, str):
             try:
                 due_dt = datetime.fromisoformat(due.replace("Z", "+00:00"))
-                if due_dt.tzinfo is None:
-                    due_dt = due_dt.replace(tzinfo=tz)
+                due_dt = _localize_due_at(due_dt, tz)
             except ValueError:
                 due_dt = None
         else:
@@ -133,20 +174,37 @@ def _normalize_plan(raw: dict, today: date, tz: ZoneInfo, user_message: str = ""
         title, notes = _compact_title(str(t["title"]), str(notes) if notes else None)
         if not notes and user_message and len(str(t["title"])) > len(title) + 5:
             notes = str(t["title"])[:500]
+        is_event = _is_timed_event(title, notes, due_dt)
+        est = _parse_estimated_minutes(t.get("estimated_minutes"), is_event=is_event)
         normalized.append(
             {
                 "title": title,
                 "notes": notes,
                 "due_at": due_dt.isoformat() if due_dt else None,
-                "estimated_minutes": int(t.get("estimated_minutes") or 30),
+                "estimated_minutes": est,
                 "priority": min(3, max(0, int(t.get("priority", 1)))),
                 "category": t.get("category"),
             }
         )
+
+    clarifying = raw.get("clarifying_question")
+    if not clarifying:
+        for item in normalized:
+            due_str = item.get("due_at")
+            due_parsed = None
+            if due_str:
+                try:
+                    due_parsed = datetime.fromisoformat(due_str.replace("Z", "+00:00"))
+                except ValueError:
+                    pass
+            if item["due_at"] and _is_timed_event(item["title"], item.get("notes"), due_parsed) and item["estimated_minutes"] is None:
+                clarifying = f"How long is your {item['title'].lower()}?"
+                break
+
     return {
         "intent": intent,
         "proposed_tasks": normalized,
-        "clarifying_question": raw.get("clarifying_question"),
+        "clarifying_question": clarifying,
     }
 
 
@@ -181,18 +239,22 @@ def _regex_fallback(user_message: str, today: date, tz: ZoneInfo) -> dict:
             if key in seen:
                 continue
             seen.add(key)
+            is_event = _is_timed_event(title, phrase, due_dt)
             tasks.append(
                 {
                     "title": title,
                     "notes": phrase[:500],
                     "due_at": due_dt.isoformat(),
-                    "estimated_minutes": 60,
+                    "estimated_minutes": None if is_event else 60,
                     "priority": 1,
                     "category": "personal",
                 }
             )
+    clarifying = None
+    if tasks and any(t["estimated_minutes"] is None for t in tasks):
+        clarifying = f"How long is your {tasks[0]['title'].lower()}?"
     return {
         "intent": "plan_day" if tasks else "other",
         "proposed_tasks": tasks,
-        "clarifying_question": None,
+        "clarifying_question": clarifying,
     }

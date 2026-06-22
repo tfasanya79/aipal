@@ -8,11 +8,13 @@ class PriorityLanes extends StatelessWidget {
     required this.tasks,
     required this.onComplete,
     required this.onReorderLane,
+    this.onTap,
   });
 
   final List<Map<String, dynamic>> tasks;
   final void Function(int id) onComplete;
   final void Function(int priority, int oldIndex, int newIndex) onReorderLane;
+  final void Function(Map<String, dynamic> task)? onTap;
 
   static const _lanes = [
     (priority: 2, label: 'High', color: Color(0xFFE8A838)),
@@ -75,6 +77,7 @@ class PriorityLanes extends StatelessWidget {
                   task: t,
                   showDragHandle: true,
                   dragIndex: index,
+                  onTap: onTap != null ? () => onTap!(t) : null,
                   onComplete: () => onComplete(t['id'] as int),
                 );
               },

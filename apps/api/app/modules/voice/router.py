@@ -106,7 +106,7 @@ async def _reply_for_text(
 
     tool_actions, today_snap = await asyncio.gather(
         task_svc.apply_task_tools_from_text(db, user.id, text, timezone=tz),
-        task_svc.today_view(db, user.id, local_day),
+        task_svc.today_view(db, user.id, local_day, timezone=tz),
     )
     companion = await ctx_svc.build_companion_context(db, user, text, today_snap=today_snap)
 
@@ -123,16 +123,17 @@ async def _reply_for_text(
 
     if extracted.get("intent") == "complete_task":
         completion_actions = await task_svc.complete_tasks_from_extraction(
-            db, user.id, extracted, local_day
+            db, user.id, extracted, local_day, timezone=tz
         )
         tool_actions.extend(completion_actions)
         if completion_actions:
-            today_snap = await task_svc.today_view(db, user.id, local_day)
+            today_snap = await task_svc.today_view(db, user.id, local_day, timezone=tz)
 
     plan_draft_payload = None
     if extracted.get("proposed_tasks") and extracted.get("intent") != "complete_task":
-        await draft_svc.save_draft(db, user.id, extracted)
-        plan_draft_payload = extracted
+        if not plan_extractor.should_defer_draft(extracted):
+            await draft_svc.save_draft(db, user.id, extracted)
+            plan_draft_payload = extracted
 
     pending = await draft_svc.get_draft(db, user.id)
     wake = user.wake_name or user.display_name or "friend"

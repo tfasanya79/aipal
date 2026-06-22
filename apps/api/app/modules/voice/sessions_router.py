@@ -6,7 +6,6 @@ from app.shared.db import get_db
 from app.shared.models import User
 from app.shared.schemas import (
     RecentSessionSummary,
-    SessionEventInput,
     SessionEventsBatchRequest,
     SessionEventsBatchResponse,
     SessionExportResponse,

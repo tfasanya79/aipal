@@ -6,6 +6,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_foreground_task/flutter_foreground_task.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
+import '../services/device_timezone.dart';
 import '../services/calendar_service.dart';
 import '../services/api_client.dart';
 import '../services/live_session.dart';
@@ -109,6 +110,7 @@ class AppState extends ChangeNotifier {
       if (token != null) {
         try {
           profile = await api.getProfile();
+          await _syncDeviceTimezone();
           await _loadCheckinBanner();
           await refreshTodayView();
         } catch (_) {
@@ -127,6 +129,16 @@ class AppState extends ChangeNotifier {
 
   Future<void> _loadWakePrefs() async {
     wakeWordEnabled = await WakeWordPrefs.isEnabled();
+  }
+
+  Future<void> _syncDeviceTimezone() async {
+    try {
+      final deviceTz = await deviceIanaTimezone();
+      final profileTz = profile?['timezone'] as String?;
+      if (deviceTz != profileTz) {
+        profile = await api.updateProfile({'timezone': deviceTz});
+      }
+    } catch (_) {}
   }
 
   Future<void> setWakeWordEnabled(bool enabled) async {
@@ -354,6 +366,14 @@ class AppState extends ChangeNotifier {
 
   Future<void> completeTask(int id) async {
     await api.patchTask(id, 'done');
+    await refreshTodayView();
+  }
+
+  Future<void> updateTaskSchedule(int id, DateTime dueLocal, int minutes) async {
+    await api.updateTask(id, {
+      'due_at': dueLocal.toUtc().toIso8601String(),
+      'estimated_minutes': minutes,
+    });
     await refreshTodayView();
   }
 
