@@ -1,7 +1,7 @@
 # AiPal — Deliverables Tracker
 
 **Last audited:** 2026-06-22  
-**App version:** `2.5.8+46` ([`apps/mobile/pubspec.yaml`](../apps/mobile/pubspec.yaml))  
+**App version:** `2.5.9+47` ([`apps/mobile/pubspec.yaml`](../apps/mobile/pubspec.yaml))  
 **Canonical phase detail:** [`PRODUCT.md`](PRODUCT.md)  
 **Application code:** this repository  
 **Extended docs hub (dev VM):** `/home/dev/docs` — architecture, backlog, `done/` snapshots (paths below)
@@ -21,7 +21,7 @@ This document is the **master audit** of what has been delivered, what remains, 
 | **QA & agent tooling** | 5 | 1 | 0 | 0 |
 | **Documentation** | 4 | 0 | 0 | 3 stale |
 
-**Narrative:** Phases **A** through **C4.1** are **shipped** on Play Internal **2.5.8+46** (voice rollback line + companion depth + timezone/task-edit hotfix + voice booking auto-confirm). **C5** companion maturity and **C6** full-duplex v2 remain backlog. OAuth calendar import and compose-message draft are deferred. Ops stack is live on the Tencent VM; iOS TestFlight pending.
+**Narrative:** Phases **A** through **C4.3** are **shipped** on Play Internal **2.5.9+47** (voice rollback line + companion depth + timezone/task-edit hotfix + voice booking auto-confirm + honesty guard). **C5** companion maturity and **C6** full-duplex v2 remain backlog. OAuth calendar import and compose-message draft are deferred. Ops stack is live on the Tencent VM; iOS TestFlight pending.
 
 ---
 
@@ -113,6 +113,7 @@ Source: [`PRODUCT.md`](PRODUCT.md)
 | C4.1-4 | Today task time/duration edit | **Done** | `TaskEditSheet` + PATCH |
 | C4.1-5 | Routine chips responsive wrap | **Done** | `routine_chips.dart` Wrap |
 | C4.2-1 | Voice complete-booking auto-confirm | **Done** | `plan_intent.is_complete_booking_request` + audio path |
+| C4.3-1 | Honesty guard + confirm recovery + local time context | **Done** | `assistant_offered_to_add`, post-LLM guard, `local_now` in context |
 | C4-2 | Calendar import | **Not started** | Deferred; maps to T-4 |
 
 ### Verification deliverables (regression)
@@ -218,7 +219,7 @@ Sources: [`done/ops-deploy-2026-06-09.md`](done/ops-deploy-2026-06-09.md), [`don
 |------|--------|-------|
 | Play API automation (fastlane + service account) | **Done** | [`done/play-api-automation-2026-06-09.md`](done/play-api-automation-2026-06-09.md) |
 | First Play Internal upload (v2.0.0+6) | **Done** | [`done/play-api-upload-internal-2026-06-09.md`](done/play-api-upload-internal-2026-06-09.md) |
-| Current Play Internal build | **Done** | **2.5.8+46** — C4.2 voice booking auto-confirm |
+| Current Play Internal build | **Done** | **2.5.9+47** — C4.3 honesty guard + confirm recovery |
 | `deploy-android-internal.sh` / `deploy-android-apk-dev.sh` | **Done** | [`../scripts/`](../scripts/) |
 | Flutter web at `/app/` | **Done** | Text mode; voice native-only |
 | Stakeholder status page at `/status/` | **Done** | Password-protected; generated from this doc + ROADMAP on deploy |

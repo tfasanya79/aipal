@@ -103,6 +103,13 @@ async def confirm_draft(
                 source="plan_confirm",
             ),
         )
-        created.append({"id": task.id, "title": task.title, "due_at": task.due_at})
+        created.append(
+            {
+                "id": task.id,
+                "title": task.title,
+                "due_at": task.due_at,
+                "estimated_minutes": task.estimated_minutes,
+            }
+        )
     await clear_draft(db, user_id)
     return created

@@ -45,6 +45,12 @@ Contributor feedback: shipped QA and architecture skew **planner** (tasks, plans
 4. **Routine UI:** Suggest routines chips use `Wrap` so labels never clip off-screen.
 5. **Voice booking (C4.2):** complete voice bookings (book + time + duration) auto-confirm to Today; LLM must not claim added until confirmed.
 
+## C4.3 honesty guard (build 47)
+
+1. **Time-aware context:** `format_system_context` injects current local time + period (morning/afternoon/evening) so the LLM greets correctly.
+2. **Confirm recovery:** when user confirms an assistant offer but no DB draft exists, re-extract from conversation history, default 60 min duration, `save_draft` → `confirm_draft` → real `create_task`.
+3. **Anti-lie guard:** after every `llm_chat` reply, if text claims success without a `Confirmed plan:` tool action, attempt recovery or rewrite to an honest “haven't added yet” line.
+
 ## Consequences
 
 - `MEM0_ENABLED=true` required in production env for full C4 benefit.

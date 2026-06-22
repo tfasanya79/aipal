@@ -6,7 +6,9 @@ import os
 import tempfile
 import time
 import uuid
+from datetime import datetime
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Depends, File, Form, UploadFile
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -34,6 +36,12 @@ log = logging.getLogger("aipal.turn")
 DEBUG_LOG = "/home/dev/.cursor/debug-60ce92.log"
 
 _EMPTY_PLAN = {"intent": "other", "proposed_tasks": [], "clarifying_question": None}
+_HONEST_NO_PENDING = (
+    "I don't have a saved item to add yet. Tell me the time and I'll put it on Today."
+)
+_HONEST_NOT_ADDED = (
+    "I haven't added anything yet — tell me the time and duration and I'll put it on Today."
+)
 
 
 def _agent_debug(hypothesis_id: str, location: str, message: str, data: dict, run_id: str = "pre-fix") -> None:
@@ -65,6 +73,72 @@ def _draft_to_schema(payload: dict | None) -> PlanDraftResponse | None:
     )
 
 
+def _has_confirmed_plan(tool_actions: list[str]) -> bool:
+    return any(a.startswith("Confirmed plan:") for a in tool_actions)
+
+
+def _format_time_label(due_at) -> str:
+    if due_at is None:
+        return ""
+    if hasattr(due_at, "strftime"):
+        return due_at.strftime("%-I:%M %p") if os.name != "nt" else due_at.strftime("%I:%M %p").lstrip("0")
+    try:
+        dt = datetime.fromisoformat(str(due_at).replace("Z", "+00:00"))
+        return dt.strftime("%I:%M %p").lstrip("0")
+    except ValueError:
+        return ""
+
+
+def _confirmed_reply(created: list[dict], *, default_minutes: int = 60) -> tuple[str, str]:
+    names = ", ".join(c["title"] for c in created)
+    tool_msg = f"Confirmed plan: {names}"
+    first = created[0]
+    mins = first.get("estimated_minutes") or default_minutes
+    time_label = _format_time_label(first.get("due_at"))
+    if time_label:
+        reply = (
+            f"Done — I've added {first['title']} at {time_label} to Today "
+            f"({mins} minutes — tap to edit on Today)."
+        )
+    else:
+        reply = f"Done — I've added {names} to Today."
+    return reply, tool_msg
+
+
+async def _recover_and_confirm_from_history(
+    db: AsyncSession,
+    user: User,
+    history: list[dict[str, str]],
+    *,
+    local_day,
+    tz: str,
+    wake_name: str,
+    history_summary: str,
+) -> tuple[str, str] | None:
+    """Re-extract from prior offer, save draft, confirm, return (reply, tool_msg) or None."""
+    if not plan_intent.assistant_offered_to_add(history):
+        return None
+    recovery_text = plan_intent.recovery_context_from_history(history)
+    if not recovery_text.strip():
+        return None
+    extracted = await plan_extractor.extract_plan(
+        recovery_text,
+        wake_name=wake_name,
+        timezone=tz,
+        history_summary=history_summary,
+        today=local_day,
+    )
+    tasks = extracted.get("proposed_tasks") or []
+    if not tasks or not any(t.get("due_at") for t in tasks):
+        return None
+    extracted = plan_intent.ensure_recovery_duration(extracted)
+    await draft_svc.save_draft(db, user.id, extracted)
+    created = await draft_svc.confirm_draft(db, user.id, timezone=tz)
+    if not created:
+        return None
+    return _confirmed_reply(created)
+
+
 async def _reply_for_text(
     db: AsyncSession,
     user: User,
@@ -79,12 +153,17 @@ async def _reply_for_text(
 
     local_day = user_local_today(user.timezone)
     tz = user.timezone or "UTC"
+    try:
+        local_now = datetime.now(ZoneInfo(tz))
+    except Exception:
+        local_now = datetime.now(ZoneInfo("UTC"))
 
     history, pending_early = await asyncio.gather(
         conv_svc.load_history(db, user.id, sid),
         draft_svc.get_draft(db, user.id),
     )
     history_summary = "\n".join(f"{h['role']}: {h['content'][:200]}" for h in history[-6:])
+    wake = user.wake_name or user.display_name or "friend"
 
     if pending_early and pending_early.get("proposed_tasks"):
         if plan_intent.is_confirm_intent(text):
@@ -105,6 +184,30 @@ async def _reply_for_text(
             await conv_svc.append_turn(db, user.id, sid, "user", text)
             await conv_svc.append_turn(db, user.id, sid, "assistant", reply)
             return reply, False, ["Discarded plan draft"], sid, None
+
+    if plan_intent.is_confirm_intent(text) and not (pending_early and pending_early.get("proposed_tasks")):
+        recovered = await _recover_and_confirm_from_history(
+            db,
+            user,
+            history,
+            local_day=local_day,
+            tz=tz,
+            wake_name=wake,
+            history_summary=history_summary,
+        )
+        if recovered:
+            reply, tool_msg = recovered
+            await conv_svc.append_turn(db, user.id, sid, "user", text)
+            await conv_svc.append_turn(db, user.id, sid, "assistant", reply)
+            uid = str(user.id)
+            asyncio.create_task(asyncio.to_thread(remember_turn, uid, role="user", text=text, session_id=sid))
+            asyncio.create_task(asyncio.to_thread(remember_turn, uid, role="assistant", text=reply, session_id=sid))
+            return reply, False, [tool_msg], sid, None
+        if plan_intent.assistant_offered_to_add(history):
+            reply = _HONEST_NO_PENDING
+            await conv_svc.append_turn(db, user.id, sid, "user", text)
+            await conv_svc.append_turn(db, user.id, sid, "assistant", reply)
+            return reply, False, [], sid, None
 
     tool_actions, today_snap = await asyncio.gather(
         task_svc.apply_task_tools_from_text(db, user.id, text, timezone=tz),
@@ -150,11 +253,11 @@ async def _reply_for_text(
                 plan_draft_payload = extracted
 
     pending = await draft_svc.get_draft(db, user.id) if not auto_confirmed else None
-    wake = user.wake_name or user.display_name or "friend"
     system_ctx = ctx_svc.format_system_context(
         wake=wake,
         about_me=user.about_me,
         local_day=local_day,
+        local_now=local_now,
         today_snap=today_snap,
         companion=companion,
         tool_actions=tool_actions,
@@ -182,6 +285,24 @@ async def _reply_for_text(
     messages.append({"role": "user", "content": f"{prefix}: {system_ctx}]\n\n{text}"})
 
     reply = await llm_chat(messages)
+
+    if plan_intent.reply_claims_success(reply) and not _has_confirmed_plan(tool_actions):
+        recovered = await _recover_and_confirm_from_history(
+            db,
+            user,
+            history + [{"role": "user", "content": text}, {"role": "assistant", "content": reply}],
+            local_day=local_day,
+            tz=tz,
+            wake_name=wake,
+            history_summary=history_summary,
+        )
+        if recovered:
+            reply, tool_msg = recovered
+            tool_actions.append(tool_msg)
+            today_snap = await task_svc.today_view(db, user.id, local_day, timezone=tz)
+        else:
+            reply = _HONEST_NOT_ADDED
+
     await conv_svc.append_turn(db, user.id, sid, "user", text)
     await conv_svc.append_turn(db, user.id, sid, "assistant", reply)
     uid = str(user.id)

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, datetime
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -55,11 +55,20 @@ def _draft_mentioned_in_history(history: list[dict[str, str]]) -> bool:
     return False
 
 
+def _time_period(hour: int) -> str:
+    if hour < 12:
+        return "morning"
+    if hour < 17:
+        return "afternoon"
+    return "evening"
+
+
 def format_system_context(
     *,
     wake: str,
     about_me: str | None,
     local_day: date,
+    local_now: datetime | None = None,
     today_snap: TodayViewResponse,
     companion: CompanionContext,
     tool_actions: list[str],
@@ -68,7 +77,15 @@ def format_system_context(
     history: list[dict[str, str]],
     auto_confirmed: bool = False,
 ) -> str:
-    system_ctx = f"User wake name: {wake}. About: {about_me or ''}"
+    if local_now is not None:
+        period = _time_period(local_now.hour)
+        system_ctx = (
+            f"Current local time: {local_now.strftime('%Y-%m-%d %H:%M')} ({period}). "
+            f"Greet accordingly; never say \"good morning\" in the afternoon or evening."
+        )
+    else:
+        system_ctx = ""
+    system_ctx += f"\nUser wake name: {wake}. About: {about_me or ''}"
     open_count = today_snap.summary.open
     if today_snap.up_next:
         system_ctx += (
