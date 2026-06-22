@@ -151,16 +151,24 @@ class _SettingsScreenState extends State<SettingsScreen> {
           onTap: () => NotificationService.instance.scheduleMorningBrief(hour: 8, minute: 0),
         ),
         ListTile(
-          title: const Text('Import today\'s calendar (v2.1)'),
+          title: const Text('Sync phone calendar for today'),
+          subtitle: const Text(
+            'Read-only from your phone calendar apps. Also syncs when you open Today.',
+          ),
           onTap: () async {
             final events = await CalendarService().fetchTodayEvents();
-            if (context.mounted && events.isNotEmpty) {
-              final n = await context.read<AppState>().api.importCalendar(events);
-              if (context.mounted) {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(content: Text('Imported $n calendar events')),
-                );
-              }
+            if (!context.mounted) return;
+            if (events.isEmpty) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(content: Text('No events found for today')),
+              );
+              return;
+            }
+            final n = await context.read<AppState>().api.importCalendar(events);
+            if (context.mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(content: Text('Synced $n calendar event(s)')),
+              );
             }
           },
         ),

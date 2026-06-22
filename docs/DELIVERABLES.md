@@ -103,7 +103,10 @@ Source: [`PRODUCT.md`](PRODUCT.md)
 
 | ID | Deliverable | Status | Evidence / notes |
 |----|-------------|--------|------------------|
-| C4-1 | Richer mem0 retrieval every turn | **Not started** | Deferred in PRODUCT.md |
+| C4-1 | Richer mem0 retrieval every turn | **Done** | `context_builder` + `MEM0_ENABLED` |
+| C4-2 | Mood-aware tone (non-clinical) | **Done** | `mood.py` VADER hints |
+| C4-3 | Evening reflection companion line | **Done** | `reflection.py` + review sheet |
+| C4-4 | Light device calendar → brain | **Done** | `device_calendar` sync |
 | C4-2 | Calendar import | **Not started** | Deferred; maps to T-4 |
 
 ### Verification deliverables (regression)

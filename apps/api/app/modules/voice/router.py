@@ -14,11 +14,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.modules.auth.service import get_current_user
 from app.shared.db import get_db
 from app.modules.brain.llm_provider import llm_chat
-from app.modules.brain.memory import memory_add, memory_search
+from app.modules.brain.memory import remember_turn
 from app.shared.models import User
 from app.modules.brain.safety import crisis_reply, is_crisis_likely
 from app.shared.schemas import AudioTurnResponse, PlanDraftResponse, ProposedTask, TextTurnRequest, TextTurnResponse, TtsRequest, TtsResponse
 from app.modules.brain import conversation as conv_svc
+from app.modules.brain import context_builder as ctx_svc
 from app.modules.today import plan_draft as draft_svc
 from app.modules.brain import plan_extractor
 from app.modules.brain import plan_intent
@@ -64,57 +65,6 @@ def _draft_to_schema(payload: dict | None) -> PlanDraftResponse | None:
     )
 
 
-def _draft_mentioned_in_history(history: list[dict[str, str]]) -> bool:
-    for h in history:
-        if h["role"] != "assistant":
-            continue
-        lower = h["content"].lower()
-        if "plan draft" in lower or "plan waiting" in lower:
-            return True
-        if "add" in lower and "today" in lower and ("want" in lower or "shall" in lower):
-            return True
-    return False
-
-
-def _build_system_ctx(
-    *,
-    wake: str,
-    about_me: str | None,
-    local_day,
-    today_snap,
-    mem_block: str,
-    tool_actions: list[str],
-    pending: dict | None,
-    extracted: dict,
-    history: list[dict[str, str]],
-) -> str:
-    system_ctx = f"User wake name: {wake}. About: {about_me or ''}"
-    open_count = today_snap.summary.open
-    if today_snap.up_next:
-        system_ctx += (
-            f"\nToday ({local_day.isoformat()}): {open_count} open task(s). "
-            f"Up next: {today_snap.up_next.title}."
-        )
-    else:
-        system_ctx += f"\nToday ({local_day.isoformat()}): {open_count} open task(s). No up-next scheduled."
-    if mem_block:
-        system_ctx += f"\nMemories:\n{mem_block}"
-    if tool_actions:
-        system_ctx += f"\nTool results: {'; '.join(tool_actions)}"
-    if pending and pending.get("proposed_tasks") and not _draft_mentioned_in_history(history):
-        tasks_desc = "; ".join(
-            f"{t['title']}" + (f" at {t['due_at']}" if t.get("due_at") else "")
-            for t in pending["proposed_tasks"]
-        )
-        system_ctx += (
-            f"\nPending plan draft (awaiting user confirm): {tasks_desc}. "
-            "Mention once if helpful; do not repeat if user already declined or confirmed."
-        )
-    if extracted.get("clarifying_question"):
-        system_ctx += f"\nClarify: {extracted['clarifying_question']}"
-    return system_ctx
-
-
 async def _reply_for_text(
     db: AsyncSession,
     user: User,
@@ -158,8 +108,7 @@ async def _reply_for_text(
         task_svc.apply_task_tools_from_text(db, user.id, text, timezone=tz),
         task_svc.today_view(db, user.id, local_day),
     )
-    memories = memory_search(str(user.id), text)
-    mem_block = "\n".join(f"- {m}" for m in memories) if memories else ""
+    companion = await ctx_svc.build_companion_context(db, user, text, today_snap=today_snap)
 
     if plan_extractor.needs_plan_extraction(text):
         extracted = await plan_extractor.extract_plan(
@@ -187,12 +136,12 @@ async def _reply_for_text(
 
     pending = await draft_svc.get_draft(db, user.id)
     wake = user.wake_name or user.display_name or "friend"
-    system_ctx = _build_system_ctx(
+    system_ctx = ctx_svc.format_system_context(
         wake=wake,
         about_me=user.about_me,
         local_day=local_day,
         today_snap=today_snap,
-        mem_block=mem_block,
+        companion=companion,
         tool_actions=tool_actions,
         pending=pending,
         extracted=extracted,
@@ -206,8 +155,9 @@ async def _reply_for_text(
     reply = await llm_chat(messages)
     await conv_svc.append_turn(db, user.id, sid, "user", text)
     await conv_svc.append_turn(db, user.id, sid, "assistant", reply)
-    asyncio.create_task(asyncio.to_thread(memory_add, str(user.id), f"User said: {text}"))
-    asyncio.create_task(asyncio.to_thread(memory_add, str(user.id), f"AiPal replied: {reply}"))
+    uid = str(user.id)
+    asyncio.create_task(asyncio.to_thread(remember_turn, uid, role="user", text=text, session_id=sid))
+    asyncio.create_task(asyncio.to_thread(remember_turn, uid, role="assistant", text=reply, session_id=sid))
 
     return reply, False, tool_actions, sid, _draft_to_schema(plan_draft_payload or pending)
 

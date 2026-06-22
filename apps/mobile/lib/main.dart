@@ -33,10 +33,34 @@ void main() async {
   });
 }
 
-class AipalApp extends StatelessWidget {
+class AipalApp extends StatefulWidget {
   const AipalApp({super.key, required this.appState});
 
   final AppState appState;
+
+  @override
+  State<AipalApp> createState() => _AipalAppState();
+}
+
+class _AipalAppState extends State<AipalApp> with WidgetsBindingObserver {
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      unawaited(widget.appState.syncDeviceCalendar());
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -56,7 +80,7 @@ class AipalApp extends StatelessWidget {
       home: const SplashScreen(),
     );
     return ChangeNotifierProvider.value(
-      value: appState,
+      value: widget.appState,
       child: (!kIsWeb && defaultTargetPlatform == TargetPlatform.android)
           ? WithForegroundTask(child: app)
           : app,

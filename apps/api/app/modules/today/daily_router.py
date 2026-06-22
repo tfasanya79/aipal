@@ -8,6 +8,7 @@ from app.modules.auth.service import get_current_user
 from app.shared.db import get_db
 from app.shared.models import User
 from app.modules.brain.companion_prompts import pick_starter
+from app.modules.brain import reflection as reflection_svc
 from app.shared.schemas import DailyPayload, GreetingResponse, TaskNudgeResponse
 from app.modules.brain import conversation as conv_svc
 from app.modules.today import plan_draft as draft_svc
@@ -24,11 +25,17 @@ async def morning_payload(
     db: AsyncSession = Depends(get_db),
 ):
     name = user.wake_name or user.display_name or "there"
-    summary = await task_svc.task_summary(db, user.id, user_local_today(user.timezone))
+    local_day = user_local_today(user.timezone)
+    summary = await task_svc.task_summary(db, user.id, local_day, timezone=user.timezone)
+    companion_line = await reflection_svc.companion_line_for_day(db, user)
+    prompt = "What should we plan for today? Tell me your tasks and I'll track them."
+    if companion_line:
+        prompt = f"{companion_line} {prompt}"
     return DailyPayload(
         greeting=f"Good morning, {name}.",
-        prompt="What should we plan for today? Tell me your tasks and I'll track them.",
+        prompt=prompt,
         summary=summary,
+        companion_line=companion_line,
     )
 
 
@@ -38,7 +45,9 @@ async def evening_payload(
     db: AsyncSession = Depends(get_db),
 ):
     name = user.wake_name or user.display_name or "there"
-    summary = await task_svc.task_summary(db, user.id, user_local_today(user.timezone))
+    local_day = user_local_today(user.timezone)
+    summary = await task_svc.task_summary(db, user.id, local_day, timezone=user.timezone)
+    companion_line = await reflection_svc.companion_line_for_day(db, user)
     if summary.total == 0:
         prompt = "You had a quiet day. Want to set a light plan for tomorrow?"
     else:
@@ -46,10 +55,13 @@ async def evening_payload(
             f"You finished {summary.done} of {summary.total} tasks today. "
             f"Want to carry {summary.open} open items to tomorrow?"
         )
+    if companion_line:
+        prompt = f"{companion_line} {prompt}"
     return DailyPayload(
         greeting=f"Good evening, {name}.",
         prompt=prompt,
         summary=summary,
+        companion_line=companion_line,
     )
 
 

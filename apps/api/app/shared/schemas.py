@@ -118,6 +118,7 @@ class DailyPayload(BaseModel):
     greeting: str
     prompt: str
     summary: TaskSummary | None = None
+    companion_line: str | None = None
 
 
 class TextTurnRequest(BaseModel):

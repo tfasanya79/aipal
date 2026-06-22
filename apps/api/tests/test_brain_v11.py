@@ -90,8 +90,8 @@ async def test_text_turn_multi_session():
     with (
         patch("app.routers.turn.llm_chat", new_callable=AsyncMock) as mock_llm,
         patch("app.routers.turn.plan_extractor.extract_plan", new_callable=AsyncMock) as mock_extract,
-        patch("app.routers.turn.memory_search", return_value=[]),
-        patch("app.routers.turn.memory_add"),
+        patch("app.modules.brain.context_builder.memory_search", return_value=[]),
+        patch("app.routers.turn.remember_turn"),
     ):
         mock_llm.side_effect = [
             "Got it — meeting at 4pm. Add to Today?",

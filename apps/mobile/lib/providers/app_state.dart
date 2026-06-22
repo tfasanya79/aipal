@@ -6,6 +6,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_foreground_task/flutter_foreground_task.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
+import '../services/calendar_service.dart';
 import '../services/api_client.dart';
 import '../services/live_session.dart';
 import '../services/live_voice_loop.dart';
@@ -260,9 +261,20 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
+  Future<void> syncDeviceCalendar() async {
+    if (token == null || kIsWeb) return;
+    try {
+      final events = await CalendarService().fetchTodayEvents();
+      if (events.isNotEmpty) {
+        await api.importCalendar(events);
+      }
+    } catch (_) {}
+  }
+
   Future<void> refreshTodayView() async {
     if (token == null) return;
     try {
+      unawaited(syncDeviceCalendar());
       todayView = await api.fetchTodayView();
       tasks = [
         ...?((todayView?['sections'] as Map?)?['now'] as List?),
