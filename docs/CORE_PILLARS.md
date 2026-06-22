@@ -6,7 +6,8 @@ Non-negotiable product capabilities. Feature work pauses until acceptance passes
 |--------|------------------------------|
 | **Live voice** | Tap orb → greeting → speak → spoken reply | **PASS** (build 38, 2026-06-18) |
 | **Wake word** | Resting → "Hi Pal" → enters Live | **PASS** (build 38) |
-| **Companion brain** | Multi-turn context, plan drafts, Today integration |
+| **Companion brain** | Multi-turn context, mem0 memory, mood-aware tone, device calendar context, evening reflection; plan drafts + Today; **local-time scheduling**; duration clarify for meetings |
+| **Today scheduling** | Tasks show user-local times; tap to edit time/duration; routine chips adapt to screen width |
 
 ## Live voice — production architecture (2026-06-18)
 

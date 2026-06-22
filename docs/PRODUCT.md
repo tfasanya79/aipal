@@ -2,7 +2,7 @@
 
 **Canonical current-state reference.** The Cursor plan file [aipal_brain_and_qa_ac51c760.plan.md](/home/dev/.cursor/plans/aipal_brain_and_qa_ac51c760.plan.md) captured the v11 brain milestone; it may be stale. Update **this file** when phases ship.
 
-**App version:** `2.5.3+41` (see `apps/mobile/pubspec.yaml`)  
+**App version:** `2.5.8+46` (see `apps/mobile/pubspec.yaml`)  
 **Stack:** Flutter mobile/web + FastAPI v2 — not Capacitor/React Native.
 
 ---
@@ -13,7 +13,7 @@
 |-------|------|--------|
 | **A** | Conversational brain + chat-to-Today | **Done** (v11) |
 | **B** | Visible brand + Today visual polish | **Done** (v11.1) |
-| **C** | Voice-first / wake / proactive | **Voice baseline locked** (build 38 PASS; observability + Today polish in progress) |
+| **C** | Voice-first / wake / proactive | **C4.2 voice booking fix shipped** (build 46); voice baseline locked |
 
 **Phase C naming:** In this doc, **C1** = foreground wake word, **C2** = Android background listening. That is **not** the same as plan file "Phase B" (logo/Today polish), which is **done** above.
 
@@ -103,13 +103,45 @@
 - [x] Foreground TTS on Companion when app open
 - [x] Quiet hours + daily nudge cap
 
+### C4 — Companion depth (done)
+
+- [x] C4-1 — `context_builder` + mem0 every turn (structured metadata)
+- [x] C4-2 — Non-clinical mood tone (VADER → prompt hint)
+- [x] C4-3 — Evening/morning `companion_line` + review sheet
+- [x] C4-4 — Light device calendar → brain context (read-only)
+
+See [`decisions/companion-c4.md`](./decisions/companion-c4.md).
+
+- Phase C4 companion depth: mem0, mood, calendar context, reflection (build 44)
+- **C4.1 hotfix (build 45):** routine chip wrap layout; device timezone sync; local wall-clock scheduling fix; duration-before-draft for meetings; Today task time/duration edit
+
+### C4.1 — Today UX + scheduling (Done, build 45)
+
+- [x] Suggest routines chips wrap on all screen widths (`Wrap` layout)
+- [x] Device IANA timezone synced to profile on bootstrap + onboarding
+- [x] Plan extractor reinterprets UTC/Z timestamps as user-local wall clock
+- [x] Today day-bucketing uses user timezone (not UTC midnight)
+- [x] Meetings without stated duration: Companion asks in chat before plan draft
+- [x] Tap task on Today → edit time and duration
+
+### C4.2 — Voice booking fix (Done, build 46)
+
+- [x] Auto-confirm complete voice bookings (explicit book + time + duration)
+- [x] LLM guardrails: never claim task is on Today until confirmed
+- [x] Refresh Today tab when voice returns plan draft
+
 ### C4+ — Deferred
 
-- [ ] Richer mem0 retrieval every turn
-- [ ] Calendar import
 - [ ] Compose message draft — user describes intent; AiPal drafts SMS/email for user review, edit, and manual send (no auto-send)
 
-### C5 — Full-duplex Live Voice v2 — Deferred
+### C5 — Companion maturity (backlog)
+
+- [ ] User goals in profile → brain context
+- [ ] Companion initiative check-ins (opt-in)
+- [ ] Weekly reflection ritual
+- [ ] Relationship rituals (“remember when…” in Companion)
+
+### C6 — Full-duplex Live Voice v2 — Deferred
 
 Paused 2026-06-18. Production Live uses half-duplex (`POST /turn/audio`). See [`decisions/live-voice-v2.md`](./decisions/live-voice-v2.md) and [`releases/HALF_DUPLEX_RECOVERY.md`](./releases/HALF_DUPLEX_RECOVERY.md).
 
@@ -126,7 +158,10 @@ Paused 2026-06-18. Production Live uses half-duplex (`POST /turn/audio`). See [`
 | iOS: Hi Pal | Companion tab only while app open |
 | Follow-up same `session_id` | No re-greeting; references prior turn |
 | Live with open tasks | Greeting mentions up next; no "tap to talk" |
-| Today view near midnight (user TZ) | Tasks match user's local "today" |
+| "Team meeting at 2:30pm" | Today shows 2:30 PM local (not +2h offset) | C4.1 |
+| Meeting without duration | Companion asks how long; no PlanDraftCard until answered | C4.1 |
+| Tap task on Today | Edit sheet: change time + duration | C4.1 |
+| Voice: "book a 6pm appointment for 30 minutes" | Task on Today immediately (auto-confirm) | C4.2 |
 
 ---
 

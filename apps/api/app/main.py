@@ -5,11 +5,15 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from .config import get_settings
-from .db import async_session, init_db
-from .routers import auth, calendar, daily, integrations, profile, sessions, tasks, turn, ws_session
-from .schemas import HealthResponse
-from .services import session_events as sess_svc
+from app.modules.auth import profile_router, router as auth_router
+from app.modules.integrations import calendar_router, router as integrations_router
+from app.modules.today import daily_router, tasks_router
+from app.modules.voice import router as turn_router, sessions_router, ws_router
+from app.modules.voice import session_events as sess_svc
+from app.modules.voice.stt import prewarm_model
+from app.shared.config import get_settings
+from app.shared.db import async_session, init_db
+from app.shared.schemas import HealthResponse
 
 logging.basicConfig(
     level=logging.INFO,
@@ -17,6 +21,20 @@ logging.basicConfig(
 )
 log = logging.getLogger("aipal")
 settings = get_settings()
+
+if not logging.getLogger().handlers:
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s %(levelname)s %(name)s %(message)s",
+    )
+
+
+async def _prewarm_whisper() -> None:
+    """Load faster-whisper at startup so the first half-duplex turn is not blocked."""
+    try:
+        await asyncio.to_thread(prewarm_model)
+    except Exception:
+        log.exception("Whisper STT pre-warm failed; first turn may be slow")
 
 
 async def _prewarm_whisper() -> None:
@@ -60,15 +78,15 @@ app.add_middleware(
 )
 
 prefix = "/api/v2"
-app.include_router(auth.router, prefix=prefix)
-app.include_router(profile.router, prefix=prefix)
-app.include_router(tasks.router, prefix=prefix)
-app.include_router(daily.router, prefix=prefix)
-app.include_router(turn.router, prefix=prefix)
-app.include_router(sessions.router, prefix=prefix)
-app.include_router(calendar.router, prefix=prefix)
-app.include_router(integrations.router, prefix=prefix)
-app.include_router(ws_session.router, prefix=prefix)
+app.include_router(auth_router, prefix=prefix)
+app.include_router(profile_router, prefix=prefix)
+app.include_router(tasks_router, prefix=prefix)
+app.include_router(daily_router, prefix=prefix)
+app.include_router(turn_router, prefix=prefix)
+app.include_router(sessions_router, prefix=prefix)
+app.include_router(calendar_router, prefix=prefix)
+app.include_router(integrations_router, prefix=prefix)
+app.include_router(ws_router, prefix=prefix)
 
 
 @app.get("/api/v2/health", response_model=HealthResponse)

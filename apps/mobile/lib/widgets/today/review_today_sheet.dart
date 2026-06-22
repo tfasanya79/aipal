@@ -35,6 +35,17 @@ class ReviewTodaySheet extends StatelessWidget {
               Text('Review your day', style: Theme.of(context).textTheme.titleLarge),
               const SizedBox(height: 8),
               Text(payload['greeting'] as String? ?? '', style: TextStyle(color: Colors.white.withValues(alpha: 0.7))),
+              if (payload['companion_line'] != null &&
+                  (payload['companion_line'] as String).isNotEmpty) ...[
+                const SizedBox(height: 8),
+                Text(
+                  payload['companion_line'] as String,
+                  style: TextStyle(
+                    color: Colors.white.withValues(alpha: 0.85),
+                    fontStyle: FontStyle.italic,
+                  ),
+                ),
+              ],
               const SizedBox(height: 16),
               Text('$done of $total tasks done', style: Theme.of(context).textTheme.titleMedium),
               const SizedBox(height: 8),

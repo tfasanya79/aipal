@@ -13,7 +13,8 @@
 | Handsfree first | Hi Pal wake + natural Live conversation | C1 + C2 Android shipped |
 | Brain owns Today | Concise titles, confirm-before-commit | C3a shipped |
 | Proactive, not noisy | 12-min nudges with guardrails | C3b shipped |
-| Memory over time | Preferences, patterns, snooze learning | C4 planned |
+| Memory over time | Preferences, patterns, companion context (mem0) | C4 shipped |
+| Local scheduling | User-local times, editable tasks, duration clarify | C4.1 shipped (build 45) |
 | Trust & warmth | Non-clinical, crisis-safe, transparent | Ongoing |
 
 ---
@@ -23,8 +24,8 @@
 | Phase | Milestone | Target |
 |-------|-----------|--------|
 | **Now** | Background wake (Android C2) + smart Today + nudges | Shipped |
-| **Next** | Calendar import; sensitivity slider | Q3 |
-| **Then** | Deep memory + learned routines | Q4 |
+| **Next** | C5 companion maturity (goals, initiative, weekly reflection) | Q3 |
+| **Then** | Calendar OAuth optional; learned routines | Q4 |
 | **Later** | iOS parity; context integrations | 2027 |
 
 ---

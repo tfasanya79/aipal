@@ -62,8 +62,8 @@ async def test_text_turn_includes_today_snapshot():
     with (
         patch("app.routers.turn.llm_chat", new_callable=AsyncMock) as mock_llm,
         patch("app.routers.turn.plan_extractor.extract_plan", new_callable=AsyncMock) as mock_extract,
-        patch("app.routers.turn.memory_search", return_value=[]),
-        patch("app.routers.turn.memory_add"),
+        patch("app.modules.brain.context_builder.memory_search", return_value=[]),
+        patch("app.routers.turn.remember_turn"),
         patch("app.routers.turn.draft_svc.get_draft", new_callable=AsyncMock) as mock_draft,
         patch("app.routers.turn.task_svc.today_view", new_callable=AsyncMock) as mock_view,
     ):

@@ -51,3 +51,29 @@ Then redeploy:
 ```bash
 ansible-playbook -i inventory.ini playbooks/deploy.yml
 ```
+
+## Secrets management
+
+| Secret | Location (local dev / CI) | Production (VM) |
+|--------|---------------------------|-----------------|
+| Postgres `DATABASE_URL` | `apps/api/.env` | `/etc/default/aipal-v2` via Ansible `aipal.env.j2` |
+| `JWT_SECRET` | `apps/api/.env` | `/etc/default/aipal-v2` |
+| `DEEPSEEK_API_KEY` | deploy shell env | `/etc/default/aipal-v2` |
+| `MEM0_ENABLED` | `apps/api/.env` (`true` for C4) | `/etc/default/aipal-v2` |
+| `WHISPER_MODEL` | `apps/api/.env` | `/etc/default/aipal-v2` |
+| Android signing keystore | `.secrets/aipal-upload-keystore.jks` | CI / release machine only |
+| Android signing env | `.secrets/android-signing.env` | CI / release machine only |
+| Play Console API | `.secrets/play-api.json` | CI / release machine only |
+| SSH deploy key | `~/.ssh/tencent_teems_ed25519.pem` | operator workstation |
+
+Never commit `.secrets/`, `.env`, or raw credentials. Play Internal deploy uses `scripts/deploy-android-internal.sh` with `.secrets/android-signing.env` and `.secrets/play-api.json`.
+
+## Background worker
+
+Optional `aipal-worker.service` (same VM) polls the Postgres `jobs` table:
+
+```bash
+cd apps/api && .venv/bin/python scripts/worker.py
+```
+
+Template: `infra/templates/aipal-worker.service.j2`

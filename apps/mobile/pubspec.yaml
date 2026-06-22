@@ -1,7 +1,7 @@
 name: aipal
 description: AiPal voice companion v2
 publish_to: none
-version: 2.5.3+41
+version: 2.5.8+46
 
 environment:
   sdk: ">=3.9.2 <4.0.0"
@@ -16,6 +16,7 @@ dependencies:
   intl: ^0.19.0
   flutter_local_notifications: ^17.2.0
   timezone: ^0.9.4
+  flutter_timezone: ^3.0.1
   device_calendar: ^4.3.0
   url_launcher: ^6.3.0
   google_fonts: ^6.2.0

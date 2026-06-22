@@ -6,6 +6,8 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_foreground_task/flutter_foreground_task.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
+import '../services/device_timezone.dart';
+import '../services/calendar_service.dart';
 import '../services/api_client.dart';
 import '../services/live_session.dart';
 import '../services/live_voice_loop.dart';
@@ -108,6 +110,7 @@ class AppState extends ChangeNotifier {
       if (token != null) {
         try {
           profile = await api.getProfile();
+          await _syncDeviceTimezone();
           await _loadCheckinBanner();
           await refreshTodayView();
         } catch (_) {
@@ -126,6 +129,16 @@ class AppState extends ChangeNotifier {
 
   Future<void> _loadWakePrefs() async {
     wakeWordEnabled = await WakeWordPrefs.isEnabled();
+  }
+
+  Future<void> _syncDeviceTimezone() async {
+    try {
+      final deviceTz = await deviceIanaTimezone();
+      final profileTz = profile?['timezone'] as String?;
+      if (deviceTz != profileTz) {
+        profile = await api.updateProfile({'timezone': deviceTz});
+      }
+    } catch (_) {}
   }
 
   Future<void> setWakeWordEnabled(bool enabled) async {
@@ -215,7 +228,6 @@ class AppState extends ChangeNotifier {
 
   Future<void> handleBackgroundWake() async {
     if (liveSession.state != LiveState.resting) return;
-    await _sessionLogger.log('wake', 'wake_detected', payload: {'source': 'background'});
     selectedTab = 0;
     WakeBackgroundService.setSuppressed(true);
     notifyListeners();
@@ -224,7 +236,6 @@ class AppState extends ChangeNotifier {
 
   Future<void> _onWakeWordDetected() async {
     if (liveSession.state != LiveState.resting) return;
-    await _sessionLogger.log('wake', 'wake_detected', payload: {'source': 'foreground'});
     await _stopWakeListener();
     await toggleLive();
   }
@@ -262,9 +273,20 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
+  Future<void> syncDeviceCalendar() async {
+    if (token == null || kIsWeb) return;
+    try {
+      final events = await CalendarService().fetchTodayEvents();
+      if (events.isNotEmpty) {
+        await api.importCalendar(events);
+      }
+    } catch (_) {}
+  }
+
   Future<void> refreshTodayView() async {
     if (token == null) return;
     try {
+      unawaited(syncDeviceCalendar());
       todayView = await api.fetchTodayView();
       tasks = [
         ...?((todayView?['sections'] as Map?)?['now'] as List?),
@@ -344,6 +366,14 @@ class AppState extends ChangeNotifier {
 
   Future<void> completeTask(int id) async {
     await api.patchTask(id, 'done');
+    await refreshTodayView();
+  }
+
+  Future<void> updateTaskSchedule(int id, DateTime dueLocal, int minutes) async {
+    await api.updateTask(id, {
+      'due_at': dueLocal.toUtc().toIso8601String(),
+      'estimated_minutes': minutes,
+    });
     await refreshTodayView();
   }
 
@@ -455,11 +485,6 @@ class AppState extends ChangeNotifier {
             notifyListeners();
           }
         });
-        _lastExportSessionId = liveSession.sessionId;
-        await _sessionLogger.log(
-          liveSession.sessionId ?? 'live',
-          'live_start',
-        );
         _voiceLoop = loop;
         await loop.start();
         unawaited(_playLiveGreeting());
@@ -469,9 +494,6 @@ class AppState extends ChangeNotifier {
         await liveSession.stop();
       }
     } else {
-      final sid = liveSession.sessionId ?? 'live';
-      await _sessionLogger.log(sid, 'live_stop');
-      await _sessionLogger.flushNow(sid);
       await _stopVoiceLoop();
       await liveSession.stop();
       _turnGeneration++;
@@ -517,9 +539,7 @@ class AppState extends ChangeNotifier {
     liveSession.state = LiveState.thinking;
     notifyListeners();
     var shouldRefreshToday = false;
-    final sid = liveSession.sessionId ?? 'live';
     try {
-      await _sessionLogger.log(sid, 'segment_upload', payload: {'bytes': bytes.length});
       const filename = 'turn.webm';
       final res = await api.audioTurn(
         bytes,
@@ -531,17 +551,8 @@ class AppState extends ChangeNotifier {
       if (returnedSid != null && (liveSession.sessionId == null || liveSession.sessionId!.isEmpty)) {
         liveSession.sessionId = returnedSid;
       }
-      _lastExportSessionId = liveSession.sessionId ?? returnedSid ?? sid;
       lastTranscript = res['transcript'] as String?;
       lastReply = res['reply'] as String?;
-      await _sessionLogger.log(
-        _lastExportSessionId!,
-        'turn_complete',
-        payload: {
-          'transcript_len': (lastTranscript ?? '').length,
-          'reply_len': (lastReply ?? '').length,
-        },
-      );
       if (res['draft_confirmed'] == true) {
         pendingPlanDraft = null;
         shouldRefreshToday = true;
@@ -549,6 +560,9 @@ class AppState extends ChangeNotifier {
         pendingPlanDraft = res['plan_draft'] as Map<String, dynamic>?;
         if (pendingPlanDraft == null) {
           await loadPlanDraft();
+        }
+        if (pendingPlanDraft != null) {
+          shouldRefreshToday = true;
         }
         if (res['tool_actions'] is List && (res['tool_actions'] as List).isNotEmpty) {
           shouldRefreshToday = true;
@@ -559,7 +573,6 @@ class AppState extends ChangeNotifier {
     } catch (e) {
       if (turnGen == _turnGeneration) {
         lastReply = 'Voice turn failed: $e';
-        await _sessionLogger.log(sid, 'error', payload: {'message': e.toString()});
       }
     } finally {
       _processingTurn = false;
