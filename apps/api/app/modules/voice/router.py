@@ -370,7 +370,8 @@ async def audio_turn(
         # #region agent log
         _agent_debug(
             "H2",
-            "audio_turn.stt_empty",
+            "turn.py:audio_turn",
+            "stt_empty",
             {"bytes": len(raw), "stt_ms": stt_ms, "session_id": sid},
         )
         # #endregion
@@ -391,7 +392,8 @@ async def audio_turn(
     # #region agent log
     _agent_debug(
         "H3",
-        "audio_turn.stt_ok",
+        "turn.py:audio_turn",
+        "stt_ok",
         {
             "bytes": len(raw),
             "transcript_len": len(transcript.strip()),
