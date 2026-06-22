@@ -105,4 +105,12 @@ Password-protected dashboard for non-GitHub stakeholders:
 
 - **API** — pytest on `apps/api/**` changes
 - **Mobile** — `flutter analyze` on `apps/mobile/**` changes
-- **Project sync** — on `docs/PRODUCT.md` changes
+- **Project sync** — on `docs/PRODUCT.md` changes to `main` (requires `PROJECT_SYNC_TOKEN`)
+
+## After a phase ships (maintainers)
+
+1. Update [`docs/PRODUCT.md`](docs/PRODUCT.md) checkboxes first (canonical source for GitHub Projects).
+2. Merge to `main` — triggers **Sync GitHub Project** workflow.
+3. Reconcile [`docs/DELIVERABLES.md`](docs/DELIVERABLES.md) narrative and Play build version.
+4. Close orphan Project issues whose `aipal-sync-id` no longer appears in PRODUCT.md (script does not auto-retire).
+5. Bump `apps/mobile/pubspec.yaml` and deploy API + Play Internal.

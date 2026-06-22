@@ -2,7 +2,7 @@
 
 **Canonical current-state reference.** The Cursor plan file [aipal_brain_and_qa_ac51c760.plan.md](/home/dev/.cursor/plans/aipal_brain_and_qa_ac51c760.plan.md) captured the v11 brain milestone; it may be stale. Update **this file** when phases ship.
 
-**App version:** `2.5.7+45` (see `apps/mobile/pubspec.yaml`)  
+**App version:** `2.5.8+46` (see `apps/mobile/pubspec.yaml`)  
 **Stack:** Flutter mobile/web + FastAPI v2 — not Capacitor/React Native.
 
 ---
@@ -13,7 +13,7 @@
 |-------|------|--------|
 | **A** | Conversational brain + chat-to-Today | **Done** (v11) |
 | **B** | Visible brand + Today visual polish | **Done** (v11.1) |
-| **C** | Voice-first / wake / proactive | **C4.1 hotfix shipped** (build 45); voice baseline locked |
+| **C** | Voice-first / wake / proactive | **C4.2 voice booking fix shipped** (build 46); voice baseline locked |
 
 **Phase C naming:** In this doc, **C1** = foreground wake word, **C2** = Android background listening. That is **not** the same as plan file "Phase B" (logo/Today polish), which is **done** above.
 
@@ -124,6 +124,12 @@ See [`decisions/companion-c4.md`](./decisions/companion-c4.md).
 - [x] Meetings without stated duration: Companion asks in chat before plan draft
 - [x] Tap task on Today → edit time and duration
 
+### C4.2 — Voice booking fix (Done, build 46)
+
+- [x] Auto-confirm complete voice bookings (explicit book + time + duration)
+- [x] LLM guardrails: never claim task is on Today until confirmed
+- [x] Refresh Today tab when voice returns plan draft
+
 ### C4+ — Deferred
 
 - [ ] Compose message draft — user describes intent; AiPal drafts SMS/email for user review, edit, and manual send (no auto-send)
@@ -155,7 +161,7 @@ Paused 2026-06-18. Production Live uses half-duplex (`POST /turn/audio`). See [`
 | "Team meeting at 2:30pm" | Today shows 2:30 PM local (not +2h offset) | C4.1 |
 | Meeting without duration | Companion asks how long; no PlanDraftCard until answered | C4.1 |
 | Tap task on Today | Edit sheet: change time + duration | C4.1 |
-| Routine chips on narrow phone | All chips visible (wrap, no clip) | C4.1 |
+| Voice: "book a 6pm appointment for 30 minutes" | Task on Today immediately (auto-confirm) | C4.2 |
 
 ---
 

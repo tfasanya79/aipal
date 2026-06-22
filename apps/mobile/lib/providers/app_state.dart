@@ -561,6 +561,9 @@ class AppState extends ChangeNotifier {
         if (pendingPlanDraft == null) {
           await loadPlanDraft();
         }
+        if (pendingPlanDraft != null) {
+          shouldRefreshToday = true;
+        }
         if (res['tool_actions'] is List && (res['tool_actions'] as List).isNotEmpty) {
           shouldRefreshToday = true;
         }

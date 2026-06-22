@@ -43,6 +43,7 @@ Contributor feedback: shipped QA and architecture skew **planner** (tasks, plans
 2. **Duration before draft:** timed meetings/calls without duration → Companion asks in chat; plan draft withheld until duration known.
 3. **User edit:** Today tasks editable for time and duration via bottom sheet (API `PATCH /tasks/{id}`).
 4. **Routine UI:** Suggest routines chips use `Wrap` so labels never clip off-screen.
+5. **Voice booking (C4.2):** complete voice bookings (book + time + duration) auto-confirm to Today; LLM must not claim added until confirmed.
 
 ## Consequences
 

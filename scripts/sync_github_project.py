@@ -22,7 +22,7 @@ SYNC_MARKER = "<!-- aipal-sync-id:"
 TRACK_LABEL = "track:backlog"
 
 STATUS_OPTIONS = ["Todo", "In progress", "Done", "Deferred"]
-PHASE_OPTIONS = ["A", "B", "C0", "C1", "C2", "C3a", "C3b", "C4"]
+PHASE_OPTIONS = ["A", "B", "C0", "C1", "C2", "C3a", "C3b", "C4", "C4.1", "C5", "C6"]
 AREA_OPTIONS = ["mobile", "api", "docs", "infra"]
 
 AREA_KEYWORDS: list[tuple[str, list[str]]] = [
@@ -124,6 +124,7 @@ def parse_product_md() -> list[BacklogItem]:
     text = PRODUCT_MD.read_text()
     items: list[BacklogItem] = []
     phase = "A"
+    in_deferred_section = False
     section_phase_map = {
         "phase a backlog": "A",
         "phase b backlog": "B",
@@ -138,10 +139,13 @@ def parse_product_md() -> list[BacklogItem]:
             phase = section_phase_map.get(key, phase)
             continue
         if line.startswith("### "):
-            m = re.match(r"###\s+(C\d+a|C\d+b|C4\+?|C0|C1|C2)\s+—", line, re.I)
+            in_deferred_section = "deferred" in header
+            m = re.match(r"###\s+(C\d+\.\d+|C\d+a|C\d+b|C4\+?|C5|C6|C0|C1|C2)\s+—", line, re.I)
             if m:
                 p = m.group(1).upper()
-                if p.startswith("C4"):
+                if p.startswith("C4."):
+                    phase = p
+                elif p.startswith("C4"):
                     phase = "C4"
                 elif p == "C3A":
                     phase = "C3a"
@@ -171,7 +175,7 @@ def parse_product_md() -> list[BacklogItem]:
             title = body
             sync_id = slugify(f"{item_phase}-{title}")
 
-        deferred = "deferred" in body.lower() and not done
+        deferred = (in_deferred_section or "deferred" in body.lower()) and not done
         items.append(
             BacklogItem(
                 sync_id=sync_id,

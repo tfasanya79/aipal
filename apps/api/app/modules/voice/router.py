@@ -70,6 +70,8 @@ async def _reply_for_text(
     user: User,
     text: str,
     session_id: str | None = None,
+    *,
+    channel: str = "text",
 ) -> tuple[str, bool, list[str], str, PlanDraftResponse | None]:
     sid = session_id or str(uuid.uuid4())
     if is_crisis_likely(text):
@@ -130,12 +132,24 @@ async def _reply_for_text(
             today_snap = await task_svc.today_view(db, user.id, local_day, timezone=tz)
 
     plan_draft_payload = None
+    auto_confirmed = False
     if extracted.get("proposed_tasks") and extracted.get("intent") != "complete_task":
         if not plan_extractor.should_defer_draft(extracted):
             await draft_svc.save_draft(db, user.id, extracted)
-            plan_draft_payload = extracted
+            if channel == "audio" and plan_intent.is_complete_booking_request(text, extracted):
+                created = await draft_svc.confirm_draft(db, user.id, timezone=tz)
+                if created:
+                    names = ", ".join(c["title"] for c in created)
+                    tool_actions.append(f"Confirmed plan: {names}")
+                    today_snap = await task_svc.today_view(db, user.id, local_day, timezone=tz)
+                    auto_confirmed = True
+                    plan_draft_payload = None
+                else:
+                    plan_draft_payload = extracted
+            else:
+                plan_draft_payload = extracted
 
-    pending = await draft_svc.get_draft(db, user.id)
+    pending = await draft_svc.get_draft(db, user.id) if not auto_confirmed else None
     wake = user.wake_name or user.display_name or "friend"
     system_ctx = ctx_svc.format_system_context(
         wake=wake,
@@ -147,7 +161,21 @@ async def _reply_for_text(
         pending=pending,
         extracted=extracted,
         history=history,
+        auto_confirmed=auto_confirmed,
     )
+
+    if auto_confirmed:
+        names = next(
+            (a.replace("Confirmed plan: ", "") for a in tool_actions if a.startswith("Confirmed plan:")),
+            "your appointment",
+        )
+        reply = f"Done — I've added {names} to Today."
+        await conv_svc.append_turn(db, user.id, sid, "user", text)
+        await conv_svc.append_turn(db, user.id, sid, "assistant", reply)
+        uid = str(user.id)
+        asyncio.create_task(asyncio.to_thread(remember_turn, uid, role="user", text=text, session_id=sid))
+        asyncio.create_task(asyncio.to_thread(remember_turn, uid, role="assistant", text=reply, session_id=sid))
+        return reply, False, tool_actions, sid, None
 
     messages = list(history)
     prefix = "[Context" if not messages else "[State"
@@ -224,7 +252,7 @@ async def audio_turn(
 
     t_reply = time.monotonic()
     reply, crisis, tool_actions, sid, draft = await _reply_for_text(
-        db, user, transcript.strip(), sid
+        db, user, transcript.strip(), sid, channel="audio"
     )
     reply_ms = int((time.monotonic() - t_reply) * 1000)
 

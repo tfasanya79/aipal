@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.modules.brain.memory import memory_search
 from app.modules.brain.mood import tone_hint, tone_hint_instruction
+from app.modules.brain import plan_extractor
 from app.modules.integrations import calendar_service as cal_svc
 from app.shared.models import User
 from app.shared.schemas import TodayViewResponse
@@ -65,6 +66,7 @@ def format_system_context(
     pending: dict | None,
     extracted: dict,
     history: list[dict[str, str]],
+    auto_confirmed: bool = False,
 ) -> str:
     system_ctx = f"User wake name: {wake}. About: {about_me or ''}"
     open_count = today_snap.summary.open
@@ -83,6 +85,12 @@ def format_system_context(
         system_ctx += f"\n{companion.tone_instruction}"
     if tool_actions:
         system_ctx += f"\nTool results: {'; '.join(tool_actions)}"
+    if auto_confirmed or any(a.startswith("Confirmed plan:") for a in tool_actions):
+        system_ctx += "\nBooking status: confirmed (tasks are on Today)."
+    elif plan_extractor.should_defer_draft(extracted):
+        system_ctx += "\nBooking status: needs_duration (ask user; do not save draft yet)."
+    elif pending and pending.get("proposed_tasks"):
+        system_ctx += "\nBooking status: draft_pending (not on Today until user confirms)."
     if pending and pending.get("proposed_tasks") and not _draft_mentioned_in_history(history):
         tasks_desc = "; ".join(
             f"{t['title']}" + (f" at {t['due_at']}" if t.get("due_at") else "")

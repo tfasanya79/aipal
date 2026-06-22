@@ -49,6 +49,31 @@ Naming here is **product Phase C**, not plan Phase B (brain/Today).
 | 2026-06-11 | **Accepted OpenWakeWord + "Hi Pal".** Porcupine rejected (~$6k/yr, vendor dependency). C1 shipped in mobile 2.2.0+15. |
 | 2026-06-12 | **C2 Android background wake shipped** in mobile 2.4.0+18 (`WakeForegroundHandler` + `WakeBackgroundService`). |
 
+## Voice freeze and safe improvements (2026-06-22)
+
+Half-duplex Live (`LiveVoiceLoop` → `POST /turn/audio`) and wake word ("Hi Pal") are **separate pipelines**. Wake only calls `toggleLive()`; improving wake detection does not require changing STT/TTS turn-taking. See [`VOICE_BASELINE.md`](../releases/VOICE_BASELINE.md).
+
+### Allowed while `VOICE_WAKE_FROZEN` (no half-duplex risk)
+
+| Change | Notes |
+|--------|--------|
+| Retrain/replace `hi_pal_v0.1.onnx` only | Run [`scripts/train-hi-pal-wakeword.py`](../../scripts/train-hi-pal-wakeword.py); swap asset under `apps/mobile/assets/models/` — no Dart changes |
+| Settings/onboarding copy | How to say "Hi Pal", mic permission, battery note |
+| API greeting / brain prompts | Allowed per voice baseline |
+
+### ONNX retrain (asset-only)
+
+1. Collect positive clips of "Hi Pal" (varied speakers, rooms, distances).
+2. Run `scripts/train-hi-pal-wakeword.py` per script README.
+3. Export new ONNX → replace `assets/models/hi_pal_v0.1.onnx`.
+4. Ship Play build; device QA: wake triggers Live, no regression on one voice turn.
+
+### Blocked until written **unfreeze**
+
+Code changes to [`wake_word_engine.dart`](../../apps/mobile/lib/services/wake_word_engine.dart) (`activationThreshold` 0.5, `pollMs`, cooldown), [`wake_*.dart`](../../apps/mobile/lib/services/), or [`app_state.dart`](../../apps/mobile/lib/providers/app_state.dart) wake handlers (`syncWakeListener`, `_syncAndroidBackgroundWake`). These cover C1-5 sensitivity slider and false-positive tuning — one hypothesis per build with build-38 device QA checklist.
+
+**Never mix** full-duplex / PCM / `live_voice_loop_io.dart` changes in the same build as wake tuning.
+
 ## References
 
 - [openWakeWord GitHub](https://github.com/dscripka/openWakeWord) (Apache 2.0)
