@@ -1,8 +1,10 @@
 import asyncio
 import logging
+import time
+import uuid
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.modules.auth import profile_router, router as auth_router
@@ -30,23 +32,13 @@ if not logging.getLogger().handlers:
 
 
 async def _prewarm_whisper() -> None:
-    """Load faster-whisper at startup so the first half-duplex turn is not blocked."""
-    try:
-        await asyncio.to_thread(prewarm_model)
-    except Exception:
-        log.exception("Whisper STT pre-warm failed; first turn may be slow")
-
-
-async def _prewarm_whisper() -> None:
     """Load faster-whisper at startup so first Live turn is not blocked on HF download."""
     if not settings.live_voice_v2:
         return
     if (settings.stt_provider or "").lower() != "whisper_stream":
         return
     try:
-        from .stt import _get_model
-
-        await asyncio.to_thread(_get_model)
+        await asyncio.to_thread(prewarm_model)
         log.info(
             "Whisper STT pre-warmed (model=%s device=%s)",
             settings.whisper_model,
@@ -76,6 +68,38 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+@app.middleware("http")
+async def request_logging_middleware(request: Request, call_next):
+    request_id = request.headers.get("x-request-id") or str(uuid.uuid4())
+    started_at = time.perf_counter()
+    try:
+        response = await call_next(request)
+    except Exception:
+        duration_ms = int((time.perf_counter() - started_at) * 1000)
+        log.exception(
+            "request_failed method=%s path=%s duration_ms=%s request_id=%s",
+            request.method,
+            request.url.path,
+            duration_ms,
+            request_id,
+        )
+        raise
+
+    duration_ms = int((time.perf_counter() - started_at) * 1000)
+    response.headers["X-Request-ID"] = request_id
+    response.headers["X-Response-Time-Ms"] = str(duration_ms)
+    log.info(
+        "request_completed method=%s path=%s status=%s duration_ms=%s request_id=%s",
+        request.method,
+        request.url.path,
+        response.status_code,
+        duration_ms,
+        request_id,
+    )
+    return response
+
 
 prefix = "/api/v2"
 app.include_router(auth_router, prefix=prefix)

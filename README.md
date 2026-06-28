@@ -2,7 +2,7 @@
 
 **AiPal** is a voice-first companion: users talk naturally; AiPal understands, proposes concise plans for **Today**, asks once to confirm, and nudges before commitments.
 
-**Current version:** `2.4.3+21` (see [`apps/mobile/pubspec.yaml`](apps/mobile/pubspec.yaml))  
+**Current version:** `2.5.8+46` (see [`apps/mobile/pubspec.yaml`](apps/mobile/pubspec.yaml))  
 **Product status:** [`docs/PRODUCT.md`](docs/PRODUCT.md)
 
 ---
@@ -106,6 +106,7 @@ Release AAB/APK artifacts live under `.release_artifacts/` (gitignored).
 
 - [Deliverables tracker](docs/DELIVERABLES.md) — master done / not-done / improvements audit
 - [Product status](docs/PRODUCT.md)
+- [Release policy](docs/RELEASE_POLICY.md)
 - [Wake word decision](docs/decisions/wake-word-engine.md)
 - [Stakeholder roadmap](docs/stakeholder/ROADMAP.md)
 - [Infra / deploy](infra/README.md)
