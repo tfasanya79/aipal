@@ -2,7 +2,7 @@ import 'package:flutter/foundation.dart';
 
 import 'wake_word_engine.dart';
 
-/// Foreground OpenWakeWord listener for "Hi Pal" (iOS native; Android uses background FGS).
+/// Foreground OpenWakeWord listener for "Hi Pal" (Android Companion + iOS).
 class WakeWordService {
   WakeWordService({
     required this.onWake,

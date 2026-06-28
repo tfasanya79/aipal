@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, datetime
+from zoneinfo import ZoneInfo
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -55,11 +56,63 @@ def _draft_mentioned_in_history(history: list[dict[str, str]]) -> bool:
     return False
 
 
+def _time_period(hour: int) -> str:
+    if hour < 12:
+        return "morning"
+    if hour < 17:
+        return "afternoon"
+    return "evening"
+
+
+def _format_due_local(due_at: datetime | None, timezone: str) -> str:
+    if due_at is None:
+        return "no time set"
+    try:
+        tz = ZoneInfo(timezone or "UTC")
+    except Exception:
+        tz = ZoneInfo("UTC")
+    local = due_at.astimezone(tz) if due_at.tzinfo else due_at.replace(tzinfo=tz)
+    return local.strftime("%I:%M %p").lstrip("0")
+
+
+def format_today_schedule_block(today_snap: TodayViewResponse, timezone: str) -> str:
+    """Authoritative open-task schedule in the user's local timezone."""
+    lines: list[str] = []
+    seen: set[int] = set()
+    for tasks in (today_snap.sections.now, today_snap.sections.upcoming):
+        for t in tasks:
+            if t.status in ("done", "skipped") or t.id in seen:
+                continue
+            seen.add(t.id)
+            est = f", {t.estimated_minutes} min" if t.estimated_minutes else ""
+            lines.append(f"- {t.title} (id={t.id}) at {_format_due_local(t.due_at, timezone)}{est}")
+    if not lines:
+        return "Today's schedule (local times): no timed open tasks."
+    return (
+        "Today's schedule (local times — authoritative; never quote UTC or invent times):\n"
+        + "\n".join(lines)
+        + "\nWhen user asks to change a task, match by id/title from this list."
+    )
+
+
+def _parse_due(raw) -> datetime | None:
+    if raw is None:
+        return None
+    if isinstance(raw, datetime):
+        return raw
+    try:
+        return datetime.fromisoformat(str(raw).replace("Z", "+00:00"))
+    except ValueError:
+        return None
+
+
 def format_system_context(
     *,
     wake: str,
     about_me: str | None,
     local_day: date,
+    local_now: datetime | None = None,
+    timezone: str = "UTC",
     today_snap: TodayViewResponse,
     companion: CompanionContext,
     tool_actions: list[str],
@@ -68,7 +121,15 @@ def format_system_context(
     history: list[dict[str, str]],
     auto_confirmed: bool = False,
 ) -> str:
-    system_ctx = f"User wake name: {wake}. About: {about_me or ''}"
+    if local_now is not None:
+        period = _time_period(local_now.hour)
+        system_ctx = (
+            f"Current local time: {local_now.strftime('%Y-%m-%d %H:%M')} ({period}). "
+            f"Greet accordingly; never say \"good morning\" in the afternoon or evening."
+        )
+    else:
+        system_ctx = ""
+    system_ctx += f"\nUser wake name: {wake}. About: {about_me or ''}"
     open_count = today_snap.summary.open
     if today_snap.up_next:
         system_ctx += (
@@ -77,6 +138,7 @@ def format_system_context(
         )
     else:
         system_ctx += f"\nToday ({local_day.isoformat()}): {open_count} open task(s). No up-next scheduled."
+    system_ctx += f"\n{format_today_schedule_block(today_snap, timezone)}"
     if companion.calendar_block:
         system_ctx += f"\n{companion.calendar_block}"
     if companion.mem_block:
@@ -93,7 +155,9 @@ def format_system_context(
         system_ctx += "\nBooking status: draft_pending (not on Today until user confirms)."
     if pending and pending.get("proposed_tasks") and not _draft_mentioned_in_history(history):
         tasks_desc = "; ".join(
-            f"{t['title']}" + (f" at {t['due_at']}" if t.get("due_at") else "")
+            f"{t['title']} at {_format_due_local(_parse_due(t.get('due_at')), timezone)}"
+            if t.get("due_at")
+            else f"{t['title']}"
             for t in pending["proposed_tasks"]
         )
         system_ctx += (

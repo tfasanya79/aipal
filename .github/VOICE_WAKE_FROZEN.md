@@ -2,6 +2,8 @@
 
 Do not modify these paths without explicit **unfreeze** from the product owner.
 
+**Targeted unfreeze history:** [`docs/releases/VOICE_BASELINE.md`](../docs/releases/VOICE_BASELINE.md)
+
 **Freeze ≠ disable:** Half-duplex Live and wake-word must remain **enabled** with build-38 behavior. Only **code edits** to these paths are forbidden.
 
 ```

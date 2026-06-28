@@ -9,6 +9,7 @@ class ApiClient {
   ApiClient(this.token);
 
   static const _timeout = Duration(seconds: 12);
+  static const _audioTurnTimeout = Duration(seconds: 45);
 
   final String? token;
 
@@ -211,7 +212,7 @@ class ApiClient {
       req.fields['session_id'] = sessionId;
     }
     req.files.add(http.MultipartFile.fromBytes('file', bytes, filename: filename));
-    final streamed = await req.send().timeout(_timeout);
+    final streamed = await req.send().timeout(_audioTurnTimeout);
     final body = await streamed.stream.bytesToString();
     if (streamed.statusCode >= 400) {
       throw Exception('Audio turn failed (${streamed.statusCode}): $body');
@@ -266,5 +267,27 @@ class ApiClient {
       throw Exception('Export failed (${r.statusCode}): ${r.body}');
     }
     return jsonDecode(r.body) as Map<String, dynamic>;
+  }
+
+  Future<void> agentDebugLog({
+    required String hypothesisId,
+    required String location,
+    required String message,
+    Map<String, dynamic>? data,
+    String runId = 'pre-fix',
+  }) async {
+    if (token == null) return;
+    try {
+      await _post(
+        Uri.parse('${AppConfig.apiBase}/debug/client-log'),
+        body: jsonEncode({
+          'hypothesis_id': hypothesisId,
+          'location': location,
+          'message': message,
+          'data': data ?? {},
+          'run_id': runId,
+        }),
+      ).timeout(const Duration(seconds: 3));
+    } catch (_) {}
   }
 }

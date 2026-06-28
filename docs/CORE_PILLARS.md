@@ -4,8 +4,8 @@ Non-negotiable product capabilities. Feature work pauses until acceptance passes
 
 | Pillar | Acceptance (one device test) |
 |--------|------------------------------|
-| **Live voice** | Tap orb → greeting → speak → spoken reply | **PASS** (build 38, 2026-06-18) |
-| **Wake word** | Resting → "Hi Pal" → enters Live | **PASS** (build 38) |
+| **Live voice** | Tap orb → greeting → speak → spoken reply | **PASS** (build 38 baseline); **re-verify** on 2.6.11+61 |
+| **Wake word** | Resting → "Hi Pal" → enters Live | **In progress** (build 61 device QA) |
 | **Companion brain** | Multi-turn context, mem0 memory, mood-aware tone, device calendar context, evening reflection; plan drafts + Today; **local-time scheduling**; duration clarify for meetings |
 | **Today scheduling** | Tasks show user-local times; tap to edit time/duration; routine chips adapt to screen width |
 

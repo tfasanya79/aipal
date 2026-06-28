@@ -20,11 +20,7 @@ class _CompanionScreenState extends State<CompanionScreen> {
   @override
   void initState() {
     super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) {
-        context.read<AppState>().syncWakeListener();
-      }
-    });
+    // Wake sync is handled by goToTab() and finishBootstrap() — avoid double mic start here.
   }
 
   @override
@@ -32,7 +28,13 @@ class _CompanionScreenState extends State<CompanionScreen> {
     return Consumer<AppState>(
       builder: (context, state, _) {
         final live = state.liveSession.state;
-        final label = live == LiveState.resting ? 'Resting' : 'Live — listening';
+        final inConvo = state.inConversation;
+        final label = switch (live) {
+          LiveState.resting => 'Resting',
+          LiveState.thinking => 'Live — thinking',
+          LiveState.speaking => 'Live — speaking',
+          LiveState.listening => 'Live — listening',
+        };
         return Padding(
           padding: const EdgeInsets.all(20),
           child: Column(
@@ -49,6 +51,15 @@ class _CompanionScreenState extends State<CompanionScreen> {
                   ),
                 ],
               ),
+              if (state.wakeWordError != null && state.wakeWordEnabled)
+                Padding(
+                  padding: const EdgeInsets.only(top: 8),
+                  child: Text(
+                    state.wakeWordError!,
+                    textAlign: TextAlign.center,
+                    style: TextStyle(fontSize: 12, color: Theme.of(context).colorScheme.error),
+                  ),
+                ),
               if (state.wakeWordListening)
                 Padding(
                   padding: const EdgeInsets.only(top: 12),
@@ -60,6 +71,18 @@ class _CompanionScreenState extends State<CompanionScreen> {
                     style: TextStyle(
                       fontSize: 13,
                       color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.85),
+                    ),
+                  ),
+                )
+              else if (state.wakeWordEnabled && !inConvo && live == LiveState.resting)
+                Padding(
+                  padding: const EdgeInsets.only(top: 12),
+                  child: Text(
+                    'Hi Pal enabled — starting listener…',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      fontSize: 13,
+                      color: Colors.white.withValues(alpha: 0.45),
                     ),
                   ),
                 ),
@@ -99,7 +122,7 @@ class _CompanionScreenState extends State<CompanionScreen> {
                 onTap: () => state.toggleLive(),
               ),
               const SizedBox(height: 24),
-              if (state.lastReply != null)
+              if (state.lastReply != null && inConvo)
                 Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 12),
                   child: Text(
@@ -129,13 +152,17 @@ class _CompanionScreenState extends State<CompanionScreen> {
               ),
               const SizedBox(height: 12),
               Text(
-                live == LiveState.resting
+                !inConvo
                     ? (state.wakeWordListening
                         ? (defaultTargetPlatform == TargetPlatform.android
                             ? 'Say Hi Pal anywhere or tap the orb to go Live'
                             : 'Say Hi Pal or tap the orb to go Live')
-                        : 'Tap the orb to go Live — just talk naturally')
-                    : 'Tap the orb again to stop Live mode',
+                        : 'Tap the orb to go Live')
+                    : live == LiveState.listening
+                        ? 'Listening… tap orb to end · stays open for follow-ups'
+                        : live == LiveState.speaking
+                            ? 'Speaking… you can interrupt or wait'
+                            : 'Working on that…',
                 style: TextStyle(fontSize: 12, color: Colors.white.withValues(alpha: 0.5)),
               ),
             ],

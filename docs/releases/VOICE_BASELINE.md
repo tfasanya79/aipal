@@ -1,38 +1,79 @@
 # Voice + wake freeze
 
-**VOICE_WAKE_FROZEN:** `true` (since 2026-06-18)
+**VOICE_WAKE_FROZEN:** `partial` — targeted unfreeze through build **2.6.11+61** (2026-06-27)
 
-Rollback build **2.5.4+42** restores mobile voice/wake to the **2.5.0+38** known-good path. Build 41 regressions triggered this freeze.
+See also targeted unfreeze history in this file. Frozen path list: [`.github/VOICE_WAKE_FROZEN.md`](../../.github/VOICE_WAKE_FROZEN.md).
 
-**Freeze ≠ disable:** Half-duplex Live voice and wake-word ("Hi Pal") remain **fully enabled** and must behave identically to build 38. The freeze only blocks **code changes** to voice/wake paths — not product functionality.
+Rollback build **2.5.4+42** restored mobile voice/wake to the **2.5.0+38** known-good path. Build 41 regressions triggered the original freeze.
 
-## Allowed while frozen
+## Targeted unfreeze (2.6.10–2.6.11 — Hi Pal + phantom speech)
 
-- Docs, Today UI, brain/prompts, schema migrations, infra, modular-monolith refactor
-- Text chat and plan-draft flows
-- Session export for **text** turns only (no logger on live/wake hot path)
+| Change | Files |
+|--------|-------|
+| Mic warmup 3s — block startup false wake | `wake_word_engine.dart` |
+| Wake suppress: block fire only, not mic start; re-sync after expiry | `app_state.dart` |
+| Lifecycle-gated foreground route (no FGS while resumed) | `app_state.dart`, `main.dart` |
+| Orb force-end: stop TTS, clear in-flight turn | `app_state.dart` |
+| API: single-word STT discard, media ambient patterns, suppress `_HONEST_NOT_ADDED` on non-booking voice | `router.py` |
 
-## Forbidden until explicit unfreeze
+## Targeted unfreeze (2.6.3+51 — post-C5.2 QA fixes)
 
-- `apps/mobile/lib/providers/app_state.dart` — `toggleLive`, `_handleVoiceSegment`, `syncWakeListener`, `_syncAndroidBackgroundWake`, wake handlers
-- `apps/mobile/lib/services/live_voice_loop_io.dart`
-- `apps/mobile/lib/services/wake_*.dart` (behavior changes)
-- `LIVE_VOICE_V2` / `liveVoiceV2` / `LiveVoiceSession` / `voice_turn.py` runtime enablement
-- Any VAD threshold, PCM, or full-duplex experiments
+| Change | Files |
+|--------|-------|
+| Wake from Resting: suppress FGS before Live mic; `ensure_listening` ping on resume/sync | `app_state.dart`, `wake_*`, `main.dart` |
+| Ambient STT hallucination discard (therapy-style false transcripts) | `router.py` |
+| Audio turn timeout 45 s; friendly recovery; end session after 2 timeouts | `api_client.dart`, `app_state.dart` |
+| Tomorrow booking date shift + auto-confirm day guard | `plan_extractor.py`, `plan_intent.py`, `router.py` |
 
-## Unfreeze process
+## Targeted unfreeze (2.6.2+50 — C5.2 conversation session)
 
-1. User says **unfreeze** in writing
-2. One hypothesis per Play build
-3. Device QA pass on same hardware before merging
+User-approved fixes for post-C5 voice UX:
+
+| Change | Files |
+|--------|-------|
+| Bounded conversation session (multi-turn + 18 s idle timeout) | `app_state.dart`, `companion_screen.dart` |
+| Greeting TTS before VAD start; mic suppressed during greeting/speech | `app_state.dart` |
+| Discarded segments stay in session; soft prompt after 2 rejects | `live_voice_loop_io.dart`, `app_state.dart` |
+| Wake lifecycle: 800 ms FGS restart, `engine_ready` timeout/retry, zombie recovery | `app_state.dart`, `wake_foreground_handler.dart` |
+| Noise gating (min voiced duration, skip empty STT TTS) | `live_voice_loop_io.dart`, `router.py` |
+
+**Still forbidden:** C6 full-duplex, `LIVE_VOICE_V2`, PCM streaming experiments, sensitivity slider.
+
+## Live mode behavior (2.6.2+)
+
+- **Resting** default — mic loop off; wake word active when enabled
+- **Conversation session** — orb tap or "Hi Pal" → optional greeting → listen → reply → **listen again** for follow-ups
+- **End session** — 18 s silence, "bye" / "that's all", or orb tap → Resting; wake resumes
+- **Task nudges** (~12 min before due) speak TTS while Resting only; do not reopen mic loop
+- Empty/noise STT: silent discard (`skip_tts`), no "did not catch that clearly" spam
+
+## Device QA gates (C5.2)
+
+| # | Scenario | Pass |
+|---|----------|------|
+| 1 | Hi Pal → speak → reply → 18 s silence → Resting; Hi Pal works again | |
+| 2 | Hi Pal → reschedule → say **yes** in same session (if confirm offered) | |
+| 3 | Tap orb → greeting plays → then mic opens → no instant Resting | |
+| 4 | Ambient TV noise while Resting | No replies, no session start |
+| 5 | Tap orb → mumble too quietly | Stays Listening or soft prompt; not zombie Live |
+| 6 | Orb tap during conversation | Ends session → Resting → Hi Pal works |
+| 7 | Task nudge while Resting | TTS only, mic stays off |
 
 ## Baseline reference
 
 | Field | Value |
 |-------|--------|
-| Last known good | `2.5.0+38` |
-| Rollback ship | `2.5.4+42` (voice-identical to 38) |
-| Code anchor | `f3eea7d` + splash boot fix |
+| Original known good | `2.5.0+38` |
+| C5 brain | `2.6.0+48` |
+| One-shot Live hotfix | `2.6.1+49` |
+| Conversation session | `2.6.2+50` |
+| Trust / wake / booking hotfix | `2.6.4+52` |
+| Post-C5.2 QA fixes | `2.6.3+51` |
+| Voice reliability hotfixes | `2.6.10+60` – `2.6.11+61` |
 | Architecture | Half-duplex AAC → `POST /turn/audio` |
 
 See also [`HALF_DUPLEX_RECOVERY.md`](HALF_DUPLEX_RECOVERY.md), [`../decisions/live-voice-v2.md`](../decisions/live-voice-v2.md).
+
+## Wake model v0.2 (deferred)
+
+`hi_pal_v0.2.onnx` retrain with real speaker clips is **deferred** until device QA gate #5 (Hi Pal reliability) fails on build 50. See [`../decisions/wake-word-engine.md`](../decisions/wake-word-engine.md).
