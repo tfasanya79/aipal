@@ -2,7 +2,7 @@
 
 **Canonical current-state reference.** The Cursor plan file [aipal_brain_and_qa_ac51c760.plan.md](/home/dev/.cursor/plans/aipal_brain_and_qa_ac51c760.plan.md) captured the v11 brain milestone; it may be stale. Update **this file** when phases ship.
 
-**App version:** `2.5.9+47` (see `apps/mobile/pubspec.yaml`)  
+**App version:** `2.6.11+61` (see `apps/mobile/pubspec.yaml`)  
 **Stack:** Flutter mobile/web + FastAPI v2 — not Capacitor/React Native.
 
 ---
@@ -13,7 +13,7 @@
 |-------|------|--------|
 | **A** | Conversational brain + chat-to-Today | **Done** (v11) |
 | **B** | Visible brand + Today visual polish | **Done** (v11.1) |
-| **C** | Voice-first / wake / proactive | **C4.3 honesty guard shipped** (build 47); voice baseline locked |
+| **C** | Voice-first / wake / proactive | **C5.2+ voice reliability** (build 61 — device QA in progress) |
 
 **Phase C naming:** In this doc, **C1** = foreground wake word, **C2** = Android background listening. That is **not** the same as plan file "Phase B" (logo/Today polish), which is **done** above.
 
@@ -28,7 +28,7 @@
 - Today: priority lanes, routine chips, focus timer dial, suggest-day
 - In-app **AiPal** logo (Companion, Today header, onboarding)
 - Release QA: `release-qa-agent.md`, `smoke-test.sh`, pytest brain tests
-- Play Internal track: **2.5.3+41** (Android)
+- Play Internal track: **2.6.11+61** (Android)
 - Session observability for phased QA (`session_events`, Settings export)
 - Today hero card (Reminders-style glanceable summary)
 - C1 foreground wake word **Hi Pal** (OpenWakeWord; Settings opt-in)
@@ -134,7 +134,47 @@ See [`decisions/companion-c4.md`](./decisions/companion-c4.md).
 
 - [ ] Compose message draft — user describes intent; AiPal drafts SMS/email for user review, edit, and manual send (no auto-send)
 
-### C5 — Companion maturity (backlog)
+### C5 — Personal Assistant brain (Done, build 48)
+
+- [x] `action_executor` + `task_resolver` — grounded create/update/complete/delete
+- [x] `edit_task` intent in plan_extractor; hybrid instant/confirm reschedule
+- [x] Confirm recovery for update offers (`yes` after "say yes and I'll update it")
+- [x] Universal honesty guard — update/complete/delete claims require tool actions
+- [x] Schedule block includes task `id=` + local times; refresh after mutations
+- [x] `tests/test_action_executor.py` + regression suite
+
+See [`decisions/companion-c5.md`](./decisions/companion-c5.md).
+
+### C5.1 — Live resting + wake reliability (Done, build 49)
+
+- [x] One-shot Live: return to Resting after each voice turn (not continuous VAD)
+- [x] Noise gating: min voiced duration client-side; empty/junk STT silent server-side
+- [x] Instant clear reschedules via regex-first edit (no LLM "say yes" for "move X to 8pm")
+- [x] Wake word lifecycle: `engine_ready`/`engine_failed` handling, FGS restart after Live
+- [x] Permission/error surfacing in Settings when Hi Pal cannot start
+
+### C5.2 — Conversation session + wake reliability (Done, build 50)
+
+- [x] Bounded multi-turn session with 18 s idle timeout (replaces one-shot Live)
+- [x] Greeting TTS before VAD; mic suppressed during greeting/speech/thinking
+- [x] Discarded noise segments stay in session; soft "I'm listening — go ahead" after 2 rejects
+- [x] Explicit end: "bye", orb tap, idle timeout → Resting + wake resumes
+- [x] Zombie session fix: `_inConversation` never true without active loop; wake recovery on stale state
+- [x] Wake handshake: 800 ms FGS restart, 5 s `engine_ready` timeout/retry, `engine_failed` on restart failure
+
+### C5.2+ — Voice reliability hotfixes (builds 59–61, device QA ongoing)
+
+Targeted unfreezes addressing Hi Pal listener stability, phantom Live speech, and orb end-session. See [`releases/VOICE_BASELINE.md`](./releases/VOICE_BASELINE.md) gates 1–7.
+
+| Build | Focus |
+|-------|--------|
+| 59 | Serialized wake sync; orb reentrancy guard; clear reply on Resting |
+| 60 | Mic warmup (3s); wake suppress split; API ambient STT filters |
+| 61 | Lifecycle-gated foreground route; suppress re-sync timer; FGS race fix |
+
+**Not passing consistently on device as of 2026-06-27:** gate #1 (stable “Listening for Hi Pal”), gate #4 (quiet room), gate #6 (orb end). Continue device QA before C6 or “intelligence” backlog.
+
+### C5.3 — Companion maturity (backlog)
 
 - [ ] User goals in profile → brain context
 - [ ] Companion initiative check-ins (opt-in)
@@ -162,6 +202,16 @@ Paused 2026-06-18. Production Live uses half-duplex (`POST /turn/audio`). See [`
 | Meeting without duration | Companion asks how long; no PlanDraftCard until answered | C4.1 |
 | Tap task on Today | Edit sheet: change time + duration | C4.1 |
 | Voice: "book a 6pm appointment for 30 minutes" | Task on Today immediately (auto-confirm) | C4.2 |
+| Voice/text: "move Sweden Open to 8pm" | Today shows 8:00 PM; `Updated task:` in tool_actions | C5 |
+| Vague: "change it to 8" → yes | Confirm offer then reschedule | C5 |
+| "What's on my schedule?" | Lists local times from Today schedule block | C5 |
+| LLM claims update without tool | Honest fallback or recovery | C5 |
+| Live: one utterance per orb/wake tap | Returns to Resting; no ambient noise replies | C5.1 |
+| Live: multi-turn follow-up ("yes") in same session | Stays Listening after reply; same `session_id` | C5.2 |
+| Live: 18 s silence after reply | Returns to Resting; Hi Pal works again | C5.2 |
+| Live: orb tap during conversation | Ends session immediately; wake resumes | C5.2 |
+| Greeting before mic | TTS plays before "Live — listening" chip | C5.2 |
+| Hi Pal after Live session | Wake works without toggle off/on | C5.1 |
 
 ---
 
@@ -173,4 +223,5 @@ Paused 2026-06-18. Production Live uses half-duplex (`POST /turn/audio`). See [`
 - [Core pillars](./CORE_PILLARS.md)
 - [Stakeholder roadmap](./stakeholder/ROADMAP.md)
 - [Play Internal v2](./releases/PLAY_INTERNAL_v2.md)
-- Legacy charter: `legacy/Project-goal--explicit-plan-100-project-goal.md` (pre-Flutter; historical)
+- [Companion C5 ADR](./decisions/companion-c5.md)
+- [External assessment (chat import)](./assessment/INDEX.md) — compare via [COMPARISON.md](./assessment/COMPARISON.md)

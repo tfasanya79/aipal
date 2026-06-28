@@ -1,7 +1,7 @@
 # AiPal — Deliverables Tracker
 
-**Last audited:** 2026-06-22  
-**App version:** `2.5.9+47` ([`apps/mobile/pubspec.yaml`](../apps/mobile/pubspec.yaml))  
+**Last audited:** 2026-06-27  
+**App version:** `2.6.11+61` ([`apps/mobile/pubspec.yaml`](../apps/mobile/pubspec.yaml))  
 **Canonical phase detail:** [`PRODUCT.md`](PRODUCT.md)  
 **Application code:** this repository  
 **Extended docs hub (dev VM):** `/home/dev/docs` — architecture, backlog, `done/` snapshots (paths below)
@@ -14,14 +14,14 @@ This document is the **master audit** of what has been delivered, what remains, 
 
 | Domain | Done | In progress | Deferred | Not started |
 |--------|------|-------------|----------|-------------|
-| **Product phases (A–C)** | 32 items | 0 | 3 | 2 |
+| **Product phases (A–C)** | 32 items | 1 (voice QA) | 3 | 2 |
 | **Requirements (R/L/T/DLY/INT)** | 14 IDs | 0 | 0 | 8 IDs partial; 6 not started |
-| **Ops & infrastructure** | 6 | 0 | 0 | 1 optional cleanup |
+| **Ops & infrastructure** | 6 | 0 | 0 | 2 (observability, multi-region) |
 | **Release & distribution** | 4 | 0 | 0 | 1 (iOS TestFlight) |
-| **QA & agent tooling** | 5 | 1 | 0 | 0 |
-| **Documentation** | 4 | 0 | 0 | 3 stale |
+| **QA & agent tooling** | 5 | 2 | 0 | 1 (device E2E voice) |
+| **Documentation** | 5 | 0 | 0 | 0 |
 
-**Narrative:** Phases **A** through **C4.3** are **shipped** on Play Internal **2.5.9+47** (voice rollback line + companion depth + timezone/task-edit hotfix + voice booking auto-confirm + honesty guard). **C5** companion maturity and **C6** full-duplex v2 remain backlog. OAuth calendar import and compose-message draft are deferred. Ops stack is live on the Tencent VM; iOS TestFlight pending.
+**Narrative:** Phases **A** through **C5.2** are **shipped**. Play Internal **2.6.11+61** adds voice reliability hotfixes (builds 59–61); **device QA gates 1–7** are in progress. External assessment imported to [`assessment/`](assessment/INDEX.md) with [`COMPARISON.md`](assessment/COMPARISON.md). **C6** full-duplex v2 remains deferred until voice gate passes.
 
 ---
 
@@ -219,7 +219,7 @@ Sources: [`done/ops-deploy-2026-06-09.md`](done/ops-deploy-2026-06-09.md), [`don
 |------|--------|-------|
 | Play API automation (fastlane + service account) | **Done** | [`done/play-api-automation-2026-06-09.md`](done/play-api-automation-2026-06-09.md) |
 | First Play Internal upload (v2.0.0+6) | **Done** | [`done/play-api-upload-internal-2026-06-09.md`](done/play-api-upload-internal-2026-06-09.md) |
-| Current Play Internal build | **Done** | **2.5.9+47** — C4.3 honesty guard + confirm recovery |
+| Current Play Internal build | **Done** | **2.6.11+61** — voice reliability hotfixes |
 | `deploy-android-internal.sh` / `deploy-android-apk-dev.sh` | **Done** | [`../scripts/`](../scripts/) |
 | Flutter web at `/app/` | **Done** | Text mode; voice native-only |
 | Stakeholder status page at `/status/` | **Done** | Password-protected; generated from this doc + ROADMAP on deploy |
@@ -256,6 +256,10 @@ Sources: [`done/ops-deploy-2026-06-09.md`](done/ops-deploy-2026-06-09.md), [`don
 | Cursor skill: `aipal-testers` | **Done** | `.cursor/skills/aipal-testers/` |
 | Cursor skill: `aipal-project-sync` | **Done** | `.cursor/skills/aipal-project-sync/` |
 | GitHub Project sync script + workflow | **Done** | `scripts/sync_github_project.py`, `.github/workflows/sync-project.yml`; [`.github/project.json`](../.github/project.json) tracked on `main` (project #24) |
+| Voice device QA gates 1–7 | **In progress** | [`releases/VOICE_BASELINE.md`](releases/VOICE_BASELINE.md); manual per Play build |
+| E2E: onboarding → plan confirm → Today | **Not started** | Assessment backlog; safe non-voice automation |
+| Prometheus / Grafana observability | **Not started** | Assessment Phase 2 proposal |
+| External assessment docs | **Done** | [`assessment/`](assessment/INDEX.md) + [`COMPARISON.md`](assessment/COMPARISON.md) |
 
 ---
 
@@ -265,7 +269,8 @@ Sources: [`done/ops-deploy-2026-06-09.md`](done/ops-deploy-2026-06-09.md), [`don
 |----------|--------|-------------|
 | `/home/dev/docs` hub ([`README.md`](README.md)) | **Done** | Link to this file (added) |
 | **DELIVERABLES.md** (this file) | **Done** | Refresh on phase ship / release |
-| [`PRODUCT.md`](PRODUCT.md) | **Done, current** | Canonical phase checklists |
+| [`PRODUCT.md`](PRODUCT.md) | **Done, current** | Canonical phase checklists; links assessment |
+| [`assessment/`](assessment/INDEX.md) | **Done** | Chat-import excerpts + comparison matrix |
 | [`stakeholder/ROADMAP.md`](stakeholder/ROADMAP.md) | **Done** | Stakeholder narrative |
 | [`architecture/feature-spec-v2.md`](architecture/feature-spec-v2.md) | **Done** | Living spec |
 | [`architecture/requirement-file-v2.md`](architecture/requirement-file-v2.md) | **Done** | Add status column optional follow-up |
