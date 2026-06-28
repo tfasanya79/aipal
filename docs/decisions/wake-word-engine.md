@@ -68,6 +68,10 @@ Half-duplex Live (`LiveVoiceLoop` → `POST /turn/audio`) and wake word ("Hi Pal
 3. Export new ONNX → replace `assets/models/hi_pal_v0.1.onnx`.
 4. Ship Play build; device QA: wake triggers Live, no regression on one voice turn.
 
+### hi_pal_v0.2 (C5.2 follow-up — deferred)
+
+Build **2.6.2+50** ships wake **code** fixes (800 ms FGS restart, `engine_ready` handshake, zombie recovery). Model retrain to **`hi_pal_v0.2.onnx`** is **deferred** until device QA gate #5 (Hi Pal reliability) fails on real hardware — requires **50+ real speaker clips** (phone mic, 1–3 m, varied rooms) and expanded negatives. Asset-only swap per steps above; no Dart changes.
+
 ### Blocked until written **unfreeze**
 
 Code changes to [`wake_word_engine.dart`](../../apps/mobile/lib/services/wake_word_engine.dart) (`activationThreshold` 0.5, `pollMs`, cooldown), [`wake_*.dart`](../../apps/mobile/lib/services/), or [`app_state.dart`](../../apps/mobile/lib/providers/app_state.dart) wake handlers (`syncWakeListener`, `_syncAndroidBackgroundWake`). These cover C1-5 sensitivity slider and false-positive tuning — one hypothesis per build with build-38 device QA checklist.

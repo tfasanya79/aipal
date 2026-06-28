@@ -72,6 +72,12 @@ class WakeBackgroundService {
     FlutterForegroundTask.sendDataToTask({'suppress': suppressed});
   }
 
+  /// Ask the FGS isolate to (re)start the mic pipeline when Resting with wake enabled.
+  static void ensureListening() {
+    if (!Platform.isAndroid) return;
+    FlutterForegroundTask.sendDataToTask({'ensure_listening': true});
+  }
+
   static Future<bool> isRunning() async {
     if (!Platform.isAndroid) return false;
     return FlutterForegroundTask.isRunningService;

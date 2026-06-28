@@ -8,7 +8,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.modules.auth import profile_router, router as auth_router
 from app.modules.integrations import calendar_router, router as integrations_router
 from app.modules.today import daily_router, tasks_router
-from app.modules.voice import router as turn_router, sessions_router, ws_router
+from app.modules.voice import router as turn_router, sessions_router, ws_router, debug_router
 from app.modules.voice import session_events as sess_svc
 from app.modules.voice.stt import prewarm_model
 from app.shared.config import get_settings
@@ -68,6 +68,7 @@ app.include_router(sessions_router, prefix=prefix)
 app.include_router(calendar_router, prefix=prefix)
 app.include_router(integrations_router, prefix=prefix)
 app.include_router(ws_router, prefix=prefix)
+app.include_router(debug_router, prefix=prefix)
 
 
 @app.get("/api/v2/health", response_model=HealthResponse)

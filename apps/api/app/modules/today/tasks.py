@@ -204,7 +204,13 @@ def task_to_dict(task: Task, subtasks: list[Task] | None = None) -> dict:
 async def today_view(db: AsyncSession, user_id: uuid.UUID, day: date, *, timezone: str = "UTC") -> TodayViewResponse:
     from app.shared.schemas import TaskResponse
 
-    all_tasks = await list_tasks(db, user_id, day=day, top_level_only=True, timezone=timezone)
+    today_tasks = await list_tasks(db, user_id, day=day, top_level_only=True, timezone=timezone)
+    tomorrow_tasks = await list_tasks(
+        db, user_id, day=day + timedelta(days=1), top_level_only=True, timezone=timezone
+    )
+    seen = {t.id for t in today_tasks}
+    all_tasks = list(today_tasks) + [t for t in tomorrow_tasks if t.id not in seen]
+    all_tasks.sort(key=_sort_key)
     parent_ids = [t.id for t in all_tasks]
     sub_map = await _load_subtasks(db, user_id, parent_ids)
 

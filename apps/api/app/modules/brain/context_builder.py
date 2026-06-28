@@ -85,12 +85,13 @@ def format_today_schedule_block(today_snap: TodayViewResponse, timezone: str) ->
                 continue
             seen.add(t.id)
             est = f", {t.estimated_minutes} min" if t.estimated_minutes else ""
-            lines.append(f"- {t.title} at {_format_due_local(t.due_at, timezone)}{est}")
+            lines.append(f"- {t.title} (id={t.id}) at {_format_due_local(t.due_at, timezone)}{est}")
     if not lines:
         return "Today's schedule (local times): no timed open tasks."
     return (
         "Today's schedule (local times — authoritative; never quote UTC or invent times):\n"
         + "\n".join(lines)
+        + "\nWhen user asks to change a task, match by id/title from this list."
     )
 
 
@@ -165,31 +166,4 @@ def format_system_context(
         )
     if extracted.get("clarifying_question"):
         system_ctx += f"\nClarify: {extracted['clarifying_question']}"
-    # #region agent log
-    try:
-        import json
-        import time
-
-        with open("/home/dev/.cursor/debug-60ce92.log", "a", encoding="utf-8") as f:
-            f.write(
-                json.dumps(
-                    {
-                        "sessionId": "60ce92",
-                        "hypothesisId": "H7",
-                        "location": "context_builder.py:format_system_context",
-                        "message": "schedule_in_context",
-                        "data": {
-                            "timezone": timezone,
-                            "local_now": local_now.isoformat() if local_now else None,
-                            "schedule": format_today_schedule_block(today_snap, timezone)[:300],
-                        },
-                        "timestamp": int(time.time() * 1000),
-                        "runId": "post-fix",
-                    }
-                )
-                + "\n"
-            )
-    except OSError:
-        pass
-    # #endregion
     return system_ctx

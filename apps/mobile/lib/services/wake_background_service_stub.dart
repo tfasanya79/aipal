@@ -8,5 +8,7 @@ class WakeBackgroundService {
 
   static void setSuppressed(bool suppressed) {}
 
+  static void ensureListening() {}
+
   static Future<bool> isRunning() async => false;
 }

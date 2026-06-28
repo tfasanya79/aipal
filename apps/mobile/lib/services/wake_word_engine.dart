@@ -18,10 +18,17 @@ class WakeWordEngine {
 
   static const wakePhrase = 'Hi Pal';
   static const pollMs = 100;
-  static const activationThreshold = 0.5;
+  static const activationThreshold = 0.28;
 
   /// Last init failure message (for FGS → main isolate reporting).
   static String? lastInitError;
+
+  /// Optional hook for agent debug logging (main isolate only).
+  static void Function(
+    String hypothesisId,
+    String message,
+    Map<String, dynamic> data,
+  )? agentDebug;
 
   final AudioRecorder _recorder = AudioRecorder();
   StreamSubscription<Uint8List>? _audioSub;
@@ -30,6 +37,10 @@ class WakeWordEngine {
   bool _listening = false;
   bool _cooldown = false;
   bool _suppressed = false;
+  int _pollCount = 0;
+  double _maxProbSinceSample = 0;
+  DateTime? _micStartedAt;
+  static const _warmupMs = 3000;
 
   bool get isListening => _listening;
 
@@ -45,8 +56,21 @@ class WakeWordEngine {
     return status.isGranted;
   }
 
+  Future<bool>? _initFuture;
+  Future<void>? _startFuture;
+
   Future<bool> init() async {
     if (_initialized) return true;
+    if (_initFuture != null) return _initFuture!;
+    _initFuture = _initImpl();
+    try {
+      return await _initFuture!;
+    } finally {
+      _initFuture = null;
+    }
+  }
+
+  Future<bool> _initImpl() async {
     lastInitError = null;
     try {
       final ok = await OpenWakeWord.init(
@@ -70,9 +94,28 @@ class WakeWordEngine {
 
   Future<void> start() async {
     if (_listening) return;
+    if (_startFuture != null) return _startFuture!;
+    _startFuture = _startImpl();
+    try {
+      await _startFuture!;
+    } finally {
+      _startFuture = null;
+    }
+  }
+
+  Future<void> _startImpl() async {
+    if (_listening) return;
     if (!_initialized && !await init()) return;
-    if (_isSuppressed()) return;
-    if (!await ensureMicPermission()) return;
+    if (_isSuppressed()) {
+      lastInitError = 'Wake suppressed';
+      agentDebug?.call('H4', 'start_suppressed', {'suppressed': true});
+      return;
+    }
+    if (!await ensureMicPermission()) {
+      lastInitError = 'Microphone permission denied';
+      agentDebug?.call('H4', 'mic_denied', {});
+      return;
+    }
 
     final stream = await _recorder.startStream(const RecordConfig(
       encoder: AudioEncoder.pcm16bits,
@@ -84,6 +127,10 @@ class WakeWordEngine {
     _pollTimer ??=
         Timer.periodic(const Duration(milliseconds: pollMs), (_) => _pollActivation());
     _listening = true;
+    _pollCount = 0;
+    _maxProbSinceSample = 0;
+    _micStartedAt = DateTime.now();
+    agentDebug?.call('H3', 'mic_stream_started', {'listening': true, 'warmupMs': _warmupMs});
   }
 
   Future<void> stop() async {
@@ -117,11 +164,30 @@ class WakeWordEngine {
     OpenWakeWord.processAudio(int16);
   }
 
+  bool _inWarmup() {
+    final started = _micStartedAt;
+    if (started == null) return false;
+    return DateTime.now().difference(started).inMilliseconds < _warmupMs;
+  }
+
   void _pollActivation() {
     if (!_listening || _cooldown || _isSuppressed()) return;
+    if (_inWarmup()) return;
     final prob = OpenWakeWord.getProbability();
+    if (prob > _maxProbSinceSample) _maxProbSinceSample = prob;
+    _pollCount++;
+    if (_pollCount % 50 == 0) {
+      agentDebug?.call('H3', 'wake_prob_sample', {
+        'prob': prob,
+        'maxProb': _maxProbSinceSample,
+        'threshold': activationThreshold,
+        'activated': OpenWakeWord.isActivated(),
+      });
+      _maxProbSinceSample = prob;
+    }
     if (OpenWakeWord.isActivated() || prob >= activationThreshold) {
       _cooldown = true;
+      agentDebug?.call('H3', 'wake_threshold_hit', {'prob': prob});
       onWake();
       Future.delayed(const Duration(seconds: 2), () => _cooldown = false);
     }

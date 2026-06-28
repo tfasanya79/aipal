@@ -3,11 +3,13 @@
 from datetime import date, datetime
 from unittest.mock import AsyncMock, patch
 
+from zoneinfo import ZoneInfo
+
 import pytest
 from httpx import ASGITransport, AsyncClient
 
 from app.main import app
-from app.modules.brain import context_builder, plan_intent
+from app.modules.brain import context_builder, plan_extractor, plan_intent
 from app.shared.schemas import TaskSummary, TodaySections, TodayViewResponse
 
 
@@ -67,6 +69,141 @@ def test_is_complete_booking_request_false_without_duration():
         ],
     }
     assert not plan_intent.is_complete_booking_request("schedule a meeting at 3pm", extracted)
+
+
+def test_is_complete_booking_request_false_wrong_day_for_tomorrow():
+    tz = "Europe/Stockholm"
+    extracted = {
+        "clarifying_question": None,
+        "proposed_tasks": [
+            {"title": "Team meeting", "due_at": "2026-06-22T08:00:00+02:00", "estimated_minutes": 60}
+        ],
+    }
+    assert not plan_intent.is_complete_booking_request(
+        "book a team meeting tomorrow morning at 8am for an hour",
+        extracted,
+        local_day=date(2026, 6, 22),
+        timezone=tz,
+    )
+
+
+def test_is_complete_booking_request_true_for_tomorrow():
+    extracted = {
+        "clarifying_question": None,
+        "proposed_tasks": [
+            {"title": "Team meeting", "due_at": "2026-06-23T08:00:00+02:00", "estimated_minutes": 60}
+        ],
+    }
+    assert plan_intent.is_complete_booking_request(
+        "book a team meeting tomorrow morning at 8am for an hour",
+        extracted,
+        local_day=date(2026, 6, 22),
+        timezone="Europe/Stockholm",
+    )
+
+
+def test_apply_relative_day_shifts_tomorrow():
+    tz = ZoneInfo("Europe/Stockholm")
+    tasks = [{"title": "Team meeting", "due_at": "2026-06-22T08:00:00+02:00"}]
+    shifted = plan_extractor._apply_relative_day(
+        tasks,
+        "book meeting tomorrow morning at 8",
+        date(2026, 6, 22),
+        tz,
+    )
+    assert shifted[0]["due_at"].startswith("2026-06-23T08:00")
+
+
+def test_regex_booking_fallback_tomorrow_morning():
+    tz = ZoneInfo("Europe/Stockholm")
+    out = plan_extractor._regex_booking_fallback(
+        "book a team meeting tomorrow morning at 8am for an hour",
+        date(2026, 6, 22),
+        tz,
+    )
+    assert out is not None
+    assert out["proposed_tasks"][0]["title"] == "Team meeting"
+    assert "2026-06-23" in out["proposed_tasks"][0]["due_at"]
+    assert out["proposed_tasks"][0]["estimated_minutes"] == 60
+
+
+def test_is_complete_booking_request_false_absurd_early_hour():
+    extracted = {
+        "clarifying_question": None,
+        "proposed_tasks": [
+            {"title": "Breakfast date", "due_at": "2026-06-23T04:30:00+02:00", "estimated_minutes": 30}
+        ],
+    }
+    assert not plan_intent.is_complete_booking_request(
+        "book a breakfast date for me tomorrow morning at 8:30 am",
+        extracted,
+        local_day=date(2026, 6, 22),
+        timezone="Europe/Stockholm",
+    )
+
+
+def test_confirm_intent_rejects_noisy_yes():
+    assert not plan_intent.is_confirm_intent("Yes, I did so much. I do.")
+    assert not plan_intent.is_confirm_intent(
+        "Yes, I did subscribe. My evening is going fine. Thank you"
+    )
+    assert plan_intent.is_confirm_intent("yes")
+    assert plan_intent.is_confirm_intent("yes add it to today")
+
+
+def test_nonsense_transcript():
+    from app.modules.voice.router import _is_nonsense_transcript
+
+    assert _is_nonsense_transcript("I'm going to put it on the back of the head.")
+    assert _is_nonsense_transcript(
+        "I'm going to put it in the air. I'm going to put it in the air."
+    )
+    assert not _is_nonsense_transcript("book a team meeting tomorrow at 8am")
+
+
+def test_low_signal_single_word():
+    from app.modules.voice.router import _is_low_signal_transcript
+
+    assert _is_low_signal_transcript("You")
+    assert _is_low_signal_transcript("Ok")
+    assert not _is_low_signal_transcript("book a team meeting tomorrow at 8am")
+
+
+def test_media_ambient_transcript():
+    from app.modules.voice.router import _is_media_ambient_transcript
+
+    assert _is_media_ambient_transcript(
+        "walking through the logo and the final touches on the car build"
+    )
+    assert _is_media_ambient_transcript("my video just came out this morning")
+    assert not _is_media_ambient_transcript("book a team meeting tomorrow at 8am")
+
+
+def test_edit_request_not_booking():
+    assert not plan_intent.is_edit_request(
+        "Book appointment for tomorrow morning 8.30 a.m."
+    )
+    assert not plan_intent.is_edit_request(
+        "I did not ask you to change any task, I asked you to book a breakfast"
+    )
+    assert plan_intent.is_edit_request("move Sweden Open to 8pm")
+
+
+def test_confirmed_reply_uses_tomorrow_label():
+    from app.modules.voice.router import _confirmed_reply
+
+    tz = ZoneInfo("Europe/Stockholm")
+    created = [
+        {
+            "title": "Team meeting",
+            "due_at": datetime(2026, 6, 23, 8, 0, tzinfo=tz),
+            "estimated_minutes": 60,
+        }
+    ]
+    reply, tool = _confirmed_reply(created, local_day=date(2026, 6, 22), tz=tz)
+    assert "Tomorrow" in reply
+    assert "Team meeting" in reply
+    assert tool.startswith("Confirmed plan:")
 
 
 def test_context_booking_status_draft_pending():
@@ -268,6 +405,25 @@ async def test_post_llm_guard_rewrites_false_claim():
         body = r.json()
         assert any(a.startswith("Confirmed plan:") for a in body["tool_actions"])
         assert "Dinner" in body["reply"]
+
+
+@pytest.mark.asyncio
+async def test_audio_turn_discards_ambient_hallucination_stt():
+    with patch("app.routers.turn.transcribe_path", return_value="It's okay to feel scared, Tim."):
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            reg = await client.post("/api/v2/auth/register", json={"email": "ambient@example.com"})
+            verify = await client.post("/api/v2/auth/verify", json={"token": reg.json()["dev_token"]})
+            headers = {"Authorization": f"Bearer {verify.json()['access_token']}"}
+            r = await client.post(
+                "/api/v2/turn/audio",
+                headers=headers,
+                files={"file": ("turn.m4a", b"\x00" * 256, "audio/mp4")},
+            )
+        assert r.status_code == 200
+        body = r.json()
+        assert body.get("skip_tts") is True
+        assert not body.get("audio_base64")
 
 
 @pytest.mark.asyncio
