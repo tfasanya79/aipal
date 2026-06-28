@@ -2,7 +2,13 @@
 
 **Product:** AiPal is a voice-first companion. **Today** is the companion's operational memory — users talk; AiPal understands, summarizes, schedules, and nudges. Users confirm before tasks commit.
 
-**Current release:** See `apps/mobile/pubspec.yaml` (Play Internal track).
+**Current release:** `2.6.11+61` (see `apps/mobile/pubspec.yaml`, Play Internal)
+
+---
+
+## Voice gate (non-negotiable)
+
+**Before** C6 full-duplex, streaming LLM, or large “intelligence” refactors: pass [VOICE_BASELINE.md](../releases/VOICE_BASELINE.md) device QA gates 1–7 on the current Play build.
 
 ---
 
@@ -21,12 +27,26 @@
 
 ## Roadmap
 
-| Phase | Milestone | Target |
-|-------|-----------|--------|
-| **Now** | Background wake (Android C2) + smart Today + nudges | Shipped |
-| **Next** | C5 companion maturity (goals, initiative, weekly reflection) | Q3 |
-| **Then** | Calendar OAuth optional; learned routines | Q4 |
-| **Later** | iOS parity; context integrations | 2027 |
+| Phase | Milestone | Target | Gate |
+|-------|-----------|--------|------|
+| **Now** | Voice reliability (Hi Pal, phantom speech, orb end) | Builds 59–61+ | QA gates 1–7 |
+| **Next** | C5.3 companion maturity (goals, initiative, reflection) | Q3 2026 | After voice gate |
+| **Then** | Active memory depth; E2E tests; observability (Prometheus) | Q4 2026 | — |
+| **Later** | Calendar OAuth; iOS C2 parity; context integrations | 2027 | — |
+| **Deferred** | C6 full-duplex v2 | After voice gate + ADR | Explicit unfreeze |
+
+---
+
+## Competitive snapshot (aspirational)
+
+| Aspect | AiPal today | Target (post-gate) | Siri / Google / Alexa |
+|--------|-------------|--------------------|------------------------|
+| Voice latency | >1s half-duplex | <500ms milestone | ~200–250ms |
+| Confirm-before-commit | Yes | Yes | No |
+| On-device wake | Android | + iOS | Platform-native |
+| Task voice accuracy | ~80% | 95%+ device QA | ~90% |
+
+Detail: [assessment/EXECUTIVE_SUMMARY.md](../assessment/EXECUTIVE_SUMMARY.md), [COMPARISON.md](../assessment/COMPARISON.md).
 
 ---
 

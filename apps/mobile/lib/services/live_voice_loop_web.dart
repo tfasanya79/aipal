@@ -7,6 +7,7 @@ import 'package:record/record.dart';
 class LiveVoiceLoop {
   LiveVoiceLoop({
     required this.onSegment,
+    this.onSegmentRejected,
     this.onSpeechStart,
     this.shouldSuppress,
     this.isSpeakingForVad,
@@ -17,6 +18,7 @@ class LiveVoiceLoop {
   });
 
   final Future<void> Function(List<int> bytes) onSegment;
+  final void Function()? onSegmentRejected;
   final void Function()? onSpeechStart;
   final bool Function()? shouldSuppress;
   final bool Function()? isSpeakingForVad;

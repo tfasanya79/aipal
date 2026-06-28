@@ -103,6 +103,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
           value: state.wakeWordEnabled,
           onChanged: kIsWeb ? null : (v) => state.setWakeWordEnabled(v),
         ),
+        if (state.wakeWordError != null && state.wakeWordEnabled)
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+            child: Text(
+              state.wakeWordError!,
+              style: TextStyle(fontSize: 13, color: Theme.of(context).colorScheme.error),
+            ),
+          ),
         SwitchListTile(
           title: const Text('Check-in enabled'),
           value: p?['checkin_enabled'] as bool? ?? true,

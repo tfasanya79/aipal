@@ -34,14 +34,32 @@ class WakeForegroundHandler extends TaskHandler {
   @override
   void onReceiveData(Object data) {
     if (data is! Map) return;
-    final suppress = data['suppress'] == true;
     final engine = _engine;
     if (engine == null) return;
+    if (data['ensure_listening'] == true) {
+      engine.setSuppressed(false);
+      unawaited(_startEngine(engine));
+      return;
+    }
+    if (!data.containsKey('suppress')) return;
+    final suppress = data['suppress'] == true;
     engine.setSuppressed(suppress);
     if (suppress) {
       unawaited(engine.stop());
     } else {
-      unawaited(engine.start());
+      unawaited(_startEngine(engine));
+    }
+  }
+
+  Future<void> _startEngine(WakeWordEngine engine) async {
+    await engine.start();
+    if (!engine.isListening) {
+      FlutterForegroundTask.sendDataToMain({
+        'event': 'engine_failed',
+        'error': WakeWordEngine.lastInitError ?? 'Wake engine failed to restart mic',
+      });
+    } else {
+      FlutterForegroundTask.sendDataToMain({'event': 'engine_ready'});
     }
   }
 

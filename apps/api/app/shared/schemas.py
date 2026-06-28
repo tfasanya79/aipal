@@ -165,6 +165,7 @@ class AudioTurnResponse(BaseModel):
     session_id: str | None = None
     plan_draft: PlanDraftResponse | None = None
     draft_confirmed: bool = False
+    skip_tts: bool = False
     audio_base64: str | None = None
     audio_mime: str | None = None
 

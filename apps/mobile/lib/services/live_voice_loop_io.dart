@@ -9,21 +9,27 @@ import 'package:record/record.dart';
 class LiveVoiceLoop {
   LiveVoiceLoop({
     required this.onSegment,
+    this.onSegmentRejected,
     this.onSpeechStart,
     this.shouldSuppress,
     this.isSpeakingForVad,
     this.silenceMs = 800,
     this.maxSegmentMs = 10000,
+    this.minVoicedMs = 450,
+    this.minUploadBytes = 1024,
     this.thresholdDb = -35.0,
     this.thresholdDbSpeaking = -25.0,
   });
 
   final Future<void> Function(List<int> bytes) onSegment;
+  final void Function()? onSegmentRejected;
   final void Function()? onSpeechStart;
   final bool Function()? shouldSuppress;
   final bool Function()? isSpeakingForVad;
   final int silenceMs;
   final int maxSegmentMs;
+  final int minVoicedMs;
+  final int minUploadBytes;
   final double thresholdDb;
   final double thresholdDbSpeaking;
 
@@ -38,6 +44,7 @@ class LiveVoiceLoop {
   int _dynamicSilenceMs = 800;
   String? _currentPath;
   bool _processingSegment = false;
+  int _voicedMs = 0;
 
   bool get isActive => _active;
 
@@ -88,6 +95,7 @@ class LiveVoiceLoop {
     _segmentStartedAt = DateTime.now().millisecondsSinceEpoch;
     _silenceAccumMs = 0;
     _inSegment = false;
+    _voicedMs = 0;
   }
 
   Future<void> _tick() async {
@@ -113,6 +121,7 @@ class LiveVoiceLoop {
 
     if (speaking) {
       _silenceAccumMs = 0;
+      _voicedMs += _tickMs;
       if (!_inSegment) {
         _inSegment = true;
         _segmentStartedAt = DateTime.now().millisecondsSinceEpoch;
@@ -151,16 +160,18 @@ class LiveVoiceLoop {
       final file = File(finishedPath);
       if (await file.exists()) {
         final size = await file.length();
-        if (size >= 64) {
+        if (size >= minUploadBytes && _voicedMs >= minVoicedMs) {
           await onSegment(await file.readAsBytes());
         } else {
           try {
             await file.delete();
           } catch (_) {}
+          onSegmentRejected?.call();
         }
       }
     }
 
+    _voicedMs = 0;
     _processingSegment = false;
     if (_active && !(shouldSuppress?.call() ?? false)) {
       await _startRecording();

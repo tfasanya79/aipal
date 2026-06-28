@@ -8,7 +8,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.modules.auth import profile_router, router as auth_router
 from app.modules.integrations import calendar_router, router as integrations_router
 from app.modules.today import daily_router, tasks_router
-from app.modules.voice import router as turn_router, sessions_router, ws_router
+from app.modules.voice import router as turn_router, sessions_router, ws_router, debug_router
 from app.modules.voice import session_events as sess_svc
 from app.modules.voice.stt import prewarm_model
 from app.shared.config import get_settings
@@ -33,25 +33,6 @@ async def _prewarm_whisper() -> None:
     """Load faster-whisper at startup so the first half-duplex turn is not blocked."""
     try:
         await asyncio.to_thread(prewarm_model)
-    except Exception:
-        log.exception("Whisper STT pre-warm failed; first turn may be slow")
-
-
-async def _prewarm_whisper() -> None:
-    """Load faster-whisper at startup so first Live turn is not blocked on HF download."""
-    if not settings.live_voice_v2:
-        return
-    if (settings.stt_provider or "").lower() != "whisper_stream":
-        return
-    try:
-        from .stt import _get_model
-
-        await asyncio.to_thread(_get_model)
-        log.info(
-            "Whisper STT pre-warmed (model=%s device=%s)",
-            settings.whisper_model,
-            settings.whisper_device,
-        )
     except Exception:
         log.exception("Whisper STT pre-warm failed; first turn may be slow")
 
@@ -87,6 +68,7 @@ app.include_router(sessions_router, prefix=prefix)
 app.include_router(calendar_router, prefix=prefix)
 app.include_router(integrations_router, prefix=prefix)
 app.include_router(ws_router, prefix=prefix)
+app.include_router(debug_router, prefix=prefix)
 
 
 @app.get("/api/v2/health", response_model=HealthResponse)
