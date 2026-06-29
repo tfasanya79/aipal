@@ -21,6 +21,9 @@ class Settings(BaseSettings):
     spotify_client_id: str = ""
     spotify_client_secret: str = ""
     spotify_redirect_uri: str = "aipal://spotify-callback"
+    google_client_id: str = ""
+    apple_team_id: str = ""
+    apple_client_id: str = ""
 
 
 @lru_cache

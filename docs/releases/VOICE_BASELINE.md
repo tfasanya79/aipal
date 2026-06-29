@@ -51,13 +51,24 @@ User-approved fixes for post-C5 voice UX:
 
 | # | Scenario | Pass |
 |---|----------|------|
-| 1 | Hi Pal → speak → reply → 18 s silence → Resting; Hi Pal works again | |
+| 1 | Hi Pal → speak → reply → 18 s silence → Resting; Hi Pal works again | Fix applied — requires device QA verification on next build |
 | 2 | Hi Pal → reschedule → say **yes** in same session (if confirm offered) | |
-| 3 | Tap orb → greeting plays → then mic opens → no instant Resting | |
-| 4 | Ambient TV noise while Resting | No replies, no session start |
+| 3 | Tap orb → greeting plays → then mic opens → no instant Resting | Fix applied — requires device QA verification on next build |
+| 4 | Ambient TV noise while Resting | Fix applied — requires device QA verification on next build |
 | 5 | Tap orb → mumble too quietly | Stays Listening or soft prompt; not zombie Live |
-| 6 | Orb tap during conversation | Ends session → Resting → Hi Pal works |
+| 6 | Orb tap during conversation | Fix applied — requires device QA verification on next build |
 | 7 | Task nudge while Resting | TTS only, mic stays off |
+
+## Code fixes applied (Phase 1 — gates 1, 3, 4, 6)
+
+| Gate | Root cause assessed | Fix | Commit |
+|------|---------------------|-----|--------|
+| 1 | `_endConversation` idle-timer path re-arms wake | **Already correct** — `_restartWakeAfterLive()` → `await syncWakeListener()` is called after `_inConversation = false` (lines 879, 891, 925 in `app_state.dart`). No code change needed; gate requires device QA. | TBD |
+| 3 | Mic must not open until greeting TTS finishes | **Already correct** — `_awaitingGreeting = true` before `_playLiveGreeting()`, reset to `false` after; `loop.start()` (mic open) only called after greeting completes (lines 827–833 in `app_state.dart`). No code change needed; gate requires device QA. | TBD |
+| 4 | STT picks up ambient TV/video audio while Resting | Extended `_MEDIA_AMBIENT` regex in `apps/api/app/modules/voice/router.py` with common broadcast/YouTube phrases: `subscribe and hit the bell`, `like and subscribe`, `smash that like`, `stay tuned`, `back with another`, `welcome back to`, `previously on`, `coming up next`, `after the break`, `new episode`, `season finale`, `breaking news`, `brought to you by`, `tonight on`, `this week on`. | TBD |
+| 6 | Double-tap orb could leave `_inConversation` in wrong state | **Already correct** — `_toggleLiveInProgress` flag with `try/finally` guard already present in `toggleLive()` (lines 760–780 in `app_state.dart`). No code change needed; gate requires device QA. | TBD |
+
+Smoke script added: `scripts/voice-gate-smoke.sh` — tests `/health`, `POST /turn/text`, `GET /turn/greeting`, `GET /today` against local API.
 
 ## Baseline reference
 

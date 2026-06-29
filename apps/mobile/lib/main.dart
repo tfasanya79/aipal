@@ -62,6 +62,7 @@ class _AipalAppState extends State<AipalApp> with WidgetsBindingObserver {
     if (state == AppLifecycleState.resumed) {
       unawaited(widget.appState.syncDeviceCalendar());
       unawaited(widget.appState.syncWakeListener());
+      unawaited(widget.appState.refreshTodayViewIfDateChanged());
     }
   }
 

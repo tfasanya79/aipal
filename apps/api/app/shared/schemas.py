@@ -102,6 +102,7 @@ class TodaySections(BaseModel):
     now: list[TaskResponse] = Field(default_factory=list)
     upcoming: list[TaskResponse] = Field(default_factory=list)
     completed: list[TaskResponse] = Field(default_factory=list)
+    overdue: list[TaskResponse] = Field(default_factory=list)
 
 
 class TodayViewResponse(BaseModel):

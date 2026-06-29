@@ -1,4 +1,8 @@
+import json
 import logging
+import re
+import time
+from collections.abc import AsyncGenerator
 
 import httpx
 
@@ -6,6 +10,10 @@ from app.shared.config import get_settings
 
 log = logging.getLogger("aipal.llm")
 settings = get_settings()
+
+# Tokens allowed for voice turns (fast reply). JSON extraction callers keep 400.
+_VOICE_MAX_TOKENS = 180
+_JSON_MAX_TOKENS = 400
 
 SYSTEM_PROMPT = (
     "You are AiPal, a warm, empathetic voice companion — not a medical professional or therapist. "
@@ -29,14 +37,47 @@ SYSTEM_PROMPT = (
 )
 
 
-async def llm_chat(messages: list[dict[str, str]]) -> str:
+async def llm_chat(messages: list[dict[str, str]], *, max_tokens: int = _VOICE_MAX_TOKENS) -> str:
+    provider = settings.llm_provider.lower()
+    t0 = time.monotonic()
+    try:
+        if provider == "deepseek" and settings.deepseek_api_key:
+            result = await _deepseek_chat(messages, max_tokens=max_tokens)
+        else:
+            result = await _ollama_chat(messages, max_tokens=max_tokens)
+    finally:
+        elapsed_ms = int((time.monotonic() - t0) * 1000)
+        log.info("llm_chat latency_ms=%d max_tokens=%d", elapsed_ms, max_tokens)
+    return result
+
+
+async def llm_stream(
+    messages: list[dict[str, str]], *, max_tokens: int = _VOICE_MAX_TOKENS
+) -> AsyncGenerator[str, None]:
+    """Async generator yielding text tokens as they arrive from the LLM.
+
+    Falls back to a single-shot yield when streaming is unavailable (Ollama local).
+    Callers can collect the full response or act on the first complete sentence.
+    """
     provider = settings.llm_provider.lower()
     if provider == "deepseek" and settings.deepseek_api_key:
-        return await _deepseek_chat(messages)
-    return await _ollama_chat(messages)
+        async for chunk in _deepseek_stream(messages, max_tokens=max_tokens):
+            yield chunk
+    else:
+        # Ollama: collect full response and yield as one chunk (streaming optional future work)
+        full = await _ollama_chat(messages, max_tokens=max_tokens)
+        yield full
 
 
-async def _deepseek_chat(messages: list[dict[str, str]]) -> str:
+async def llm_chat_json(messages: list[dict[str, str]]) -> dict:
+    text = await llm_chat(messages, max_tokens=_JSON_MAX_TOKENS)
+    text = text.strip()
+    if m := re.search(r"\{[\s\S]*\}", text):
+        text = m.group(0)
+    return json.loads(text)
+
+
+async def _deepseek_chat(messages: list[dict[str, str]], *, max_tokens: int) -> str:
     async with httpx.AsyncClient(timeout=60.0) as client:
         resp = await client.post(
             "https://api.deepseek.com/chat/completions",
@@ -44,25 +85,52 @@ async def _deepseek_chat(messages: list[dict[str, str]]) -> str:
             json={
                 "model": "deepseek-chat",
                 "messages": [{"role": "system", "content": SYSTEM_PROMPT}, *messages],
-                "max_tokens": 400,
+                "max_tokens": max_tokens,
             },
         )
         resp.raise_for_status()
         return resp.json()["choices"][0]["message"]["content"]
 
 
-async def llm_chat_json(messages: list[dict[str, str]]) -> dict:
-    import json
-    import re
+async def _deepseek_stream(
+    messages: list[dict[str, str]], *, max_tokens: int
+) -> AsyncGenerator[str, None]:
+    t_first: float | None = None
+    t0 = time.monotonic()
+    async with httpx.AsyncClient(timeout=60.0) as client:
+        async with client.stream(
+            "POST",
+            "https://api.deepseek.com/chat/completions",
+            headers={"Authorization": f"Bearer {settings.deepseek_api_key}"},
+            json={
+                "model": "deepseek-chat",
+                "messages": [{"role": "system", "content": SYSTEM_PROMPT}, *messages],
+                "max_tokens": max_tokens,
+                "stream": True,
+            },
+        ) as resp:
+            resp.raise_for_status()
+            async for line in resp.aiter_lines():
+                if not line.startswith("data:"):
+                    continue
+                raw = line[5:].strip()
+                if raw == "[DONE]":
+                    break
+                try:
+                    data = json.loads(raw)
+                    token = data["choices"][0].get("delta", {}).get("content") or ""
+                except Exception:
+                    continue
+                if token:
+                    if t_first is None:
+                        t_first = time.monotonic()
+                        log.info("llm_stream time_to_first_token_ms=%d", int((t_first - t0) * 1000))
+                    yield token
+    elapsed_ms = int((time.monotonic() - t0) * 1000)
+    log.info("llm_stream total_latency_ms=%d max_tokens=%d", elapsed_ms, max_tokens)
 
-    text = await llm_chat(messages)
-    text = text.strip()
-    if m := re.search(r"\{[\s\S]*\}", text):
-        text = m.group(0)
-    return json.loads(text)
 
-
-async def _ollama_chat(messages: list[dict[str, str]]) -> str:
+async def _ollama_chat(messages: list[dict[str, str]], *, max_tokens: int) -> str:
     async with httpx.AsyncClient(timeout=120.0) as client:
         resp = await client.post(
             f"{settings.ollama_base_url}/api/chat",
@@ -70,6 +138,7 @@ async def _ollama_chat(messages: list[dict[str, str]]) -> str:
                 "model": settings.ollama_model,
                 "messages": [{"role": "system", "content": SYSTEM_PROMPT}, *messages],
                 "stream": False,
+                "options": {"num_predict": max_tokens},
             },
         )
         resp.raise_for_status()

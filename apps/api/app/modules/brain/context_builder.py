@@ -78,6 +78,15 @@ def _format_due_local(due_at: datetime | None, timezone: str) -> str:
 def format_today_schedule_block(today_snap: TodayViewResponse, timezone: str) -> str:
     """Authoritative open-task schedule in the user's local timezone."""
     lines: list[str] = []
+
+    overdue = today_snap.sections.overdue
+    if overdue:
+        lines.append(
+            f"⚠ Overdue from prior days ({len(overdue)} task(s) — carry forward or discard):"
+        )
+        for t in overdue:
+            lines.append(f"  - {t.title} (id={t.id}) — was due {_format_due_local(t.due_at, timezone)}")
+
     seen: set[int] = set()
     for tasks in (today_snap.sections.now, today_snap.sections.upcoming):
         for t in tasks:

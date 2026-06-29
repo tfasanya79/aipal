@@ -214,12 +214,29 @@ async def today_view(db: AsyncSession, user_id: uuid.UUID, day: date, *, timezon
     parent_ids = [t.id for t in all_tasks]
     sub_map = await _load_subtasks(db, user_id, parent_ids)
 
-    def build_response(t: Task) -> TaskResponse:
-        return TaskResponse(**task_to_dict(t, sub_map.get(t.id, [])))
+    # Overdue: open tasks whose due_at is strictly before today's start
+    today_start, _today_end = _day_bounds(day, timezone)
+    overdue_result = await db.execute(
+        select(Task)
+        .where(
+            Task.user_id == user_id,
+            Task.parent_task_id.is_(None),
+            Task.status.in_(("planned", "in_progress")),
+            Task.due_at.is_not(None),
+            Task.due_at < today_start,
+        )
+        .order_by(Task.due_at)
+    )
+    overdue_tasks = list(overdue_result.scalars().all())
+    overdue_sub_map = await _load_subtasks(db, user_id, [t.id for t in overdue_tasks])
+
+    def build_response(t: Task, smap=sub_map) -> TaskResponse:
+        return TaskResponse(**task_to_dict(t, smap.get(t.id, [])))
 
     now = [build_response(t) for t in all_tasks if t.status == "in_progress"]
     upcoming = [build_response(t) for t in all_tasks if t.status in ("planned", "deferred")]
     completed = [build_response(t) for t in all_tasks if t.status == "done"]
+    overdue = [build_response(t, overdue_sub_map) for t in overdue_tasks]
 
     up_next = None
     if now:
@@ -231,7 +248,7 @@ async def today_view(db: AsyncSession, user_id: uuid.UUID, day: date, *, timezon
     return TodayViewResponse(
         summary=summary,
         up_next=up_next,
-        sections=TodaySections(now=now, upcoming=upcoming, completed=completed),
+        sections=TodaySections(now=now, upcoming=upcoming, completed=completed, overdue=overdue),
     )
 
 

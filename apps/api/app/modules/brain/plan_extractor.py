@@ -9,7 +9,7 @@ from app.shared.timezone_util import user_local_today
 log = logging.getLogger("aipal.plan_extractor")
 
 _PLAN_SIGNAL = re.compile(
-    r"\b(remind|add|plan|schedule|meeting|tomorrow|swim|bed|gym|at\s+\d|\d{1,2}\s*(?:am|pm)|\d{1,2}:\d{2})\b",
+    r"\b(remind|add|plan|schedule|meeting|tomorrow|swim|bed|gym|at\s+\d|\d{1,2}\s*(?:am|pm)|\d{1,2}:\d{2}|in\s+\d+\s*(?:hour|minute|min))\b",
     re.IGNORECASE,
 )
 _COMPLETE_SIGNAL = re.compile(
@@ -24,19 +24,28 @@ _EDIT_SIGNAL = re.compile(
     r"\b(move|reschedule|change|update|shift|push|make it|switch)\b",
     re.IGNORECASE,
 )
+_MUSIC_SIGNAL = re.compile(
+    r"\b(play|pause|skip|next track|stop music|put on|volume up|volume down|play some|music)\b",
+    re.IGNORECASE,
+)
 
 
 def needs_plan_extraction(text: str) -> bool:
-    """Skip the extra LLM call unless the utterance may involve planning or completion."""
+    """Skip the extra LLM call unless the utterance may involve planning, completion, or music."""
     t = text.strip()
     if not t:
         return False
-    return bool(_PLAN_SIGNAL.search(t) or _COMPLETE_SIGNAL.search(t) or _EDIT_SIGNAL.search(t))
+    return bool(
+        _PLAN_SIGNAL.search(t)
+        or _COMPLETE_SIGNAL.search(t)
+        or _EDIT_SIGNAL.search(t)
+        or _MUSIC_SIGNAL.search(t)
+    )
 
 
 EXTRACT_PROMPT = """You extract daily plans and task edits from user messages. Return ONLY valid JSON:
 {
-  "intent": "plan_day|check_in|complete_task|edit_task|other",
+  "intent": "plan_day|check_in|complete_task|edit_task|music_control|other",
   "proposed_tasks": [
     {
       "title": "1-4 word action label",
@@ -56,6 +65,8 @@ EXTRACT_PROMPT = """You extract daily plans and task edits from user messages. R
       "new_title": null
     }
   ],
+  "music_action": null,
+  "music_query": null,
   "clarifying_question": null or "one short question if times or tasks are unclear"
 }
 Rules:
@@ -63,6 +74,8 @@ Rules:
 - Put the user's original phrasing in notes when helpful.
 - If user mentions specific times (e.g. 2:30pm, 4pm, 16:00), set due_at for today using their timezone offset — not Z/UTC unless user explicitly means UTC.
 - When user says "tomorrow" or "tomorrow morning/evening", set due_at on the next calendar day in their timezone (not today).
+- RELATIVE TIMES: When user says "in 2 hours" or "in 30 minutes", compute due_at as current local time + that offset. Use the provided current local time in context.
+- MULTI-TASK: When user mentions multiple activities (e.g. "meeting at 3, gym at 6, dentist tomorrow"), extract each as a separate proposed_task with correct due_at.
 - A single booking request (e.g. "book a 7pm appointment") must produce exactly ONE proposed_task.
 - When user says 7pm in the afternoon/evening, never schedule 7am.
 - For move/reschedule/change requests use intent edit_task with edits (not proposed_tasks). Match existing task by title from conversation.
@@ -71,6 +84,7 @@ Rules:
 - priority: 0=low, 1=medium, 2=high
 - Do not invent tasks not mentioned unless user asks to plan their day generally.
 - If only checking in with no tasks, proposed_tasks can be empty and edits empty.
+- MUSIC: If user asks to play/pause/skip/change music (e.g. "play some jazz", "put on focus music", "pause the music", "skip this song"), set intent to "music_control". Set music_action to one of: play|pause|skip|volume_up|volume_down. Set music_query to the genre/playlist name if given.
 """
 
 

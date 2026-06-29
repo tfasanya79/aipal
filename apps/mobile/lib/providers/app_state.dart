@@ -153,6 +153,7 @@ class AppState extends ChangeNotifier {
           await _syncDeviceTimezone();
           await _loadCheckinBanner();
           await refreshTodayView();
+          _startDateCheckTimer();
         } catch (_) {
           token = null;
           profile = null;
@@ -167,6 +168,13 @@ class AppState extends ChangeNotifier {
     } finally {
       notifyListeners();
     }
+  }
+
+  void _startDateCheckTimer() {
+    _dateCheckTimer?.cancel();
+    _dateCheckTimer = Timer.periodic(const Duration(minutes: 5), (_) {
+      if (token != null) unawaited(refreshTodayViewIfDateChanged());
+    });
   }
 
   Future<void> _loadWakePrefs() async {
@@ -515,6 +523,18 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
+  Future<void> setTokenFromSocialAuth(Map<String, dynamic> authResponse) async {
+    final t = authResponse['access_token'] as String?;
+    if (t == null) throw Exception('No token in auth response');
+    token = t;
+    await _storage.write(key: 'token', value: token);
+    profile = await api.getProfile();
+    await _loadCheckinBanner();
+    await refreshTodayView();
+    _startDateCheckTimer();
+    notifyListeners();
+  }
+
   Future<void> updateProfile(Map<String, dynamic> data) async {
     profile = await api.updateProfile(data);
     notifyListeners();
@@ -550,6 +570,21 @@ class AppState extends ChangeNotifier {
     } catch (_) {}
     notifyListeners();
   }
+
+  /// Refreshes Today view only when the stored date differs from today's local date.
+  /// Safe to call on every app resume — no-ops if already fresh.
+  Future<void> refreshTodayViewIfDateChanged() async {
+    if (token == null) return;
+    final storedDate = todayView?['summary']?['date'] as String?;
+    final todayDate = DateTime.now().toLocal();
+    final todayStr =
+        '${todayDate.year}-${todayDate.month.toString().padLeft(2, '0')}-${todayDate.day.toString().padLeft(2, '0')}';
+    if (storedDate == null || storedDate != todayStr) {
+      await refreshTodayView();
+    }
+  }
+
+  Timer? _dateCheckTimer;
 
   void _cancelNudgeTimers() {
     for (final t in _nudgeTimers) {
@@ -1046,6 +1081,7 @@ class AppState extends ChangeNotifier {
   void dispose() {
     _cancelConversationIdleTimer();
     _cancelNudgeTimers();
+    _dateCheckTimer?.cancel();
     _foregroundDebounce?.cancel();
     _wakeSuppressResyncTimer?.cancel();
     if (_isAndroid) {

@@ -1,5 +1,6 @@
 import asyncio
 import base64
+import json
 import logging
 import os
 import re
@@ -16,7 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.modules.auth.service import get_current_user
 from app.shared.agent_debug import agent_debug
 from app.shared.db import get_db
-from app.modules.brain.llm_provider import llm_chat
+from app.modules.brain.llm_provider import llm_chat, llm_stream
 from app.modules.brain.memory import remember_turn
 from app.shared.models import User
 from app.modules.brain.safety import crisis_reply, is_crisis_likely
@@ -61,7 +62,12 @@ _MEDIA_AMBIENT = re.compile(
     r"\b("
     r"car build|video launch|walking through the logo|final touches on the|"
     r"creative momentum|channel that video|dial in the details|my video just came out|"
-    r"logo and the final touches"
+    r"logo and the final touches|"
+    r"subscribe and hit the bell|like and subscribe|smash that like|"
+    r"stay tuned|back with another|welcome back to|"
+    r"previously on|coming up next|after the break|"
+    r"new episode|season finale|breaking news|"
+    r"brought to you by|tonight on|this week on"
     r")\b",
     re.IGNORECASE,
 )
@@ -458,6 +464,22 @@ async def _reply_for_text(
         if completion_actions:
             today_snap = await task_svc.today_view(db, user.id, local_day, timezone=tz)
 
+    if extracted.get("intent") == "music_control":
+        music_action = extracted.get("music_action") or "play"
+        music_query = extracted.get("music_query")
+        from app.modules.integrations.router import play_music as _play_music_fn, PlayMusicRequest
+        music_req = PlayMusicRequest(provider="spotify", action=music_action, query=music_query)
+        try:
+            music_result = await _play_music_fn(music_req, user=user, db=db)
+            if music_result.get("ok"):
+                label = music_result.get("playlist") or music_result.get("track") or music_query or music_action
+                tool_actions.append(f"Music: {music_action} — {label}")
+            else:
+                tool_actions.append(f"Music: {music_result.get('message', 'Spotify not connected')}")
+        except Exception as exc:
+            log.warning("Music intent handler failed: %s", exc)
+            tool_actions.append("Music: Spotify not connected — link it in Settings > Integrations")
+
     if extracted.get("intent") == "edit_task":
         lower = (text or "").lower()
         if plan_intent._BOOKING_SIGNAL.search(lower) and re.search(r"\b(book|schedule)\b", lower):
@@ -648,6 +670,39 @@ async def text_turn(
         session_id=sid,
         plan_draft=draft,
     )
+
+
+@router.post("/turn/text/stream")
+async def text_turn_stream(
+    body: TextTurnRequest,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """SSE streaming endpoint: emits tokens as they arrive, then a final 'done' event.
+
+    Event format:
+      data: {"type": "token", "token": "..."}   — one per streamed token
+      data: {"type": "done", "reply": "...", "tool_actions": [...], "session_id": "...", "crisis": false}
+    """
+    from fastapi.responses import StreamingResponse
+
+    reply, crisis, tool_actions, sid, draft = await _reply_for_text(db, user, body.text, body.session_id)
+
+    async def event_generator():
+        for token in reply:
+            payload = json.dumps({"type": "token", "token": token})
+            yield f"data: {payload}\n\n"
+        done_payload = json.dumps({
+            "type": "done",
+            "reply": reply,
+            "crisis": crisis,
+            "tool_actions": tool_actions,
+            "session_id": sid,
+            "plan_draft": draft.model_dump() if draft else None,
+        })
+        yield f"data: {done_payload}\n\n"
+
+    return StreamingResponse(event_generator(), media_type="text/event-stream")
 
 
 @router.post("/turn/audio", response_model=AudioTurnResponse)

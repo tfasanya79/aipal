@@ -1,8 +1,7 @@
 # AiPal — product status (living doc)
 
-**Canonical current-state reference.** The Cursor plan file [aipal_brain_and_qa_ac51c760.plan.md](/home/dev/.cursor/plans/aipal_brain_and_qa_ac51c760.plan.md) captured the v11 brain milestone; it may be stale. Update **this file** when phases ship.
-
-**App version:** `2.6.11+61` (see `apps/mobile/pubspec.yaml`)  
+**Canonical current-state reference.**  
+**App version:** `2.6.11+100` (Play Internal build, 2026-06-29)  
 **Stack:** Flutter mobile/web + FastAPI v2 — not Capacitor/React Native.
 
 ---
@@ -13,27 +12,58 @@
 |-------|------|--------|
 | **A** | Conversational brain + chat-to-Today | **Done** (v11) |
 | **B** | Visible brand + Today visual polish | **Done** (v11.1) |
-| **C** | Voice-first / wake / proactive | **C5.2+ voice reliability** (build 61 — device QA in progress) |
-
-**Phase C naming:** In this doc, **C1** = foreground wake word, **C2** = Android background listening. That is **not** the same as plan file "Phase B" (logo/Today polish), which is **done** above.
+| **C** | Voice-first / wake / proactive | **C5.2+ voice reliability — gates code-fixed; device QA pending** |
+| **D** | MVP feature completion | **In progress** (see MVP_EXECUTION_PLAN.md) |
 
 ---
 
-## Shipped features
+## Shipped features (build 100, 2026-06-29)
 
 - Multi-turn `conversation_turns` + `session_id` on text and Live WS turns
 - LLM `plan_extractor` → `plan_draft` → user **Confirm** / **Not now** → Today
 - `PlanDraftCard` in text chat; `tool_actions` surfaced
 - Contextual `/daily/live-greeting` (tasks, draft, time of day)
 - Today: priority lanes, routine chips, focus timer dial, suggest-day
-- In-app **AiPal** logo (Companion, Today header, onboarding)
-- Release QA: `release-qa-agent.md`, `smoke-test.sh`, pytest brain tests
-- Play Internal track: **2.6.11+61** (Android)
-- Session observability for phased QA (`session_events`, Settings export)
-- Today hero card (Reminders-style glanceable summary)
+- Play Internal track: **2.6.11+100** (Android)
+- Session observability (`session_events`, Settings export)
 - C1 foreground wake word **Hi Pal** (OpenWakeWord; Settings opt-in)
 - C2 Android background wake — foreground microphone service + notification
-- Phase C prep: Today snapshot in turn context, timezone-aware today-view, voice UX copy rules
+- **LLM streaming infrastructure** — `llm_stream()` async generator; DeepSeek SSE streaming enabled; `max_tokens` reduced to 180 for voice turns; latency logging added
+- **SSE streaming endpoint** — `POST /turn/text/stream` for real-time token delivery
+- **Date-staleness fix** — client refreshes `todayView` on resume when date changed + 5-min periodic timer
+- **Overdue task lane** — API returns and LLM context surfaces overdue tasks from prior days
+- **Google Sign-In** — `POST /auth/google` (ID token verification via `google-auth`)
+- **Apple Sign-In** — `POST /auth/apple` (Apple JWT verification); onboarding screen updated
+- **Spotify full OAuth** — real token exchange/refresh, Spotify Web API search + playback, status + disconnect endpoints
+- **Music intent** — plan extractor recognises play/pause/skip/volume intents; routes to Spotify
+- **Voice baseline code fixes** — gate 4 (ambient TV/YouTube patterns extended); gates 1/3/6 confirmed implemented
+- **Voice gate smoke script** — `scripts/voice-gate-smoke.sh`
+
+---
+
+## Phase D backlog (MVP_EXECUTION_PLAN.md)
+
+- [x] D0-A — LLM latency reduction (streaming, max_tokens 180 for voice)
+- [x] D0-B — Date staleness bug (client refresh + server overdue lane)
+- [x] D0-C — Auth gateway: Google + Apple Sign-In
+- [x] D1 — Voice baseline code fixes (gate 4; 1/3/6 confirmed); smoke script
+- [ ] D2 — Wake phrase model v0.2 (HiPal/AiPal variants) — *requires device tester recordings*
+- [x] D3 — Today intelligence uplift (multi-task, relative times, music intent in extractor)
+- [x] D4 — Spotify full OAuth + playback (Android-first)
+- [ ] D5-A — Weekly email summary (manual preview + send) — *in progress*
+- [ ] D5-B — Weekly email scheduled automation
+- [ ] D6 — Subscriber gateway + tier enforcement
+- [ ] D7 — Continuous doc sync
+
+---
+
+## Phase A backlog
+
+- [x] A1 — `conversation_turns` + history in `turn.py` / `ws_session.py`
+- [x] A2 — `plan_extractor.py` (LLM JSON tasks + times)
+- [x] A3 — Plan draft GET / confirm / discard + Flutter confirm flow
+- [x] A4 — Contextual live greeting; skip generic opener if chatted today
+- [x] A5 — `test_brain_v11.py` + smoke plan-draft path
 
 ---
 

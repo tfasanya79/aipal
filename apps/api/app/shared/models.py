@@ -25,6 +25,8 @@ class User(Base):
     morning_brief_at: Mapped[time | None] = mapped_column(Time, nullable=True)
     evening_recap_at: Mapped[time | None] = mapped_column(Time, nullable=True)
     checkin_enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    auth_provider: Mapped[str] = mapped_column(String(32), default="magic_link", server_default="magic_link")
+    subscription_tier: Mapped[str] = mapped_column(String(32), default="free", server_default="free")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
 
     tasks: Mapped[list["Task"]] = relationship(back_populates="user")

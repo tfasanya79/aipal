@@ -53,6 +53,76 @@ async def verify_magic_link(db: AsyncSession, token: str) -> tuple[User, str]:
     return user, access
 
 
+async def google_sign_in(db: AsyncSession, id_token_str: str) -> tuple[User, str]:
+    """Verify Google ID token and return (User, jwt_access_token)."""
+    from google.oauth2 import id_token
+    from google.auth.transport import requests as google_requests
+    try:
+        idinfo = id_token.verify_oauth2_token(
+            id_token_str, google_requests.Request(), settings.google_client_id
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail="Invalid Google token") from exc
+    email = idinfo["email"].strip().lower()
+    result = await db.execute(select(User).where(User.email == email))
+    user = result.scalar_one_or_none()
+    if not user:
+        user = User(email=email, wake_name="AiPal", auth_provider="google")
+        db.add(user)
+        await db.flush()
+    else:
+        if user.auth_provider == "magic_link":
+            user.auth_provider = "google"
+    await db.commit()
+    await db.refresh(user)
+    access = create_access_token(user.id, user.email)
+    return user, access
+
+
+async def apple_sign_in(db: AsyncSession, identity_token: str, email: str | None) -> tuple[User, str]:
+    """Verify Apple identity token and return (User, jwt_access_token)."""
+    import urllib.request
+    import json as _json
+    from jose import jwt as jose_jwt
+    try:
+        with urllib.request.urlopen("https://appleid.apple.com/auth/keys") as resp:
+            jwks = _json.loads(resp.read())
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail="Could not reach Apple auth server") from exc
+    try:
+        header = jose_jwt.get_unverified_header(identity_token)
+        key = next((k for k in jwks["keys"] if k["kid"] == header["kid"]), None)
+        if key is None:
+            raise ValueError("Unknown key ID")
+        from jose.backends import RSAKey
+        pub = RSAKey(key, algorithm="RS256")
+        claims = jose_jwt.decode(
+            identity_token,
+            pub.public_key().to_pem().decode(),
+            algorithms=["RS256"],
+            audience=settings.apple_client_id or None,
+            options={"verify_aud": bool(settings.apple_client_id)},
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail="Invalid Apple token") from exc
+    user_email = (claims.get("email") or email or "").strip().lower()
+    if not user_email:
+        raise HTTPException(status_code=400, detail="Email not provided by Apple")
+    result = await db.execute(select(User).where(User.email == user_email))
+    user = result.scalar_one_or_none()
+    if not user:
+        user = User(email=user_email, wake_name="AiPal", auth_provider="apple")
+        db.add(user)
+        await db.flush()
+    else:
+        if user.auth_provider == "magic_link":
+            user.auth_provider = "apple"
+    await db.commit()
+    await db.refresh(user)
+    access = create_access_token(user.id, user.email)
+    return user, access
+
+
 async def get_current_user(
     creds: HTTPAuthorizationCredentials | None = Depends(security),
     db: AsyncSession = Depends(get_db),

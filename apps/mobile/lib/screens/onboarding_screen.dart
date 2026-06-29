@@ -1,7 +1,10 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../providers/app_state.dart';
+import '../services/social_auth_service.dart';
 import '../widgets/aipal_logo.dart';
 import '../services/device_timezone.dart';
 import '../services/notification_service.dart';
@@ -27,6 +30,19 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
   void initState() {
     super.initState();
     if (widget.continueProfile) _step = 1;
+  }
+
+  Future<void> _handleSocialAuth(Future<Map<String, dynamic>?> Function() signIn) async {
+    final state = context.read<AppState>();
+    try {
+      final result = await signIn();
+      if (result == null) return;
+      await state.setTokenFromSocialAuth(result);
+      if (!mounted) return;
+      Navigator.of(context).pushReplacement(MaterialPageRoute(builder: (_) => const HomeShell()));
+    } catch (e) {
+      setState(() => _error = e.toString());
+    }
   }
 
   Future<void> _finish() async {
@@ -79,6 +95,31 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
               ),
               const SizedBox(height: 32),
               if (_step == 0 && !widget.continueProfile) ...[
+                ElevatedButton.icon(
+                  onPressed: () => _handleSocialAuth(() => SocialAuthService.signInWithGoogle(null)),
+                  icon: const Icon(Icons.login),
+                  label: const Text('Continue with Google'),
+                ),
+                if (Platform.isIOS) ...[
+                  const SizedBox(height: 8),
+                  OutlinedButton.icon(
+                    onPressed: () => _handleSocialAuth(() => SocialAuthService.signInWithApple(null)),
+                    icon: const Icon(Icons.apple),
+                    label: const Text('Continue with Apple'),
+                  ),
+                ],
+                const SizedBox(height: 16),
+                Row(
+                  children: [
+                    const Expanded(child: Divider()),
+                    Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 8),
+                      child: Text('or', style: TextStyle(color: Colors.white.withValues(alpha: 0.5))),
+                    ),
+                    const Expanded(child: Divider()),
+                  ],
+                ),
+                const SizedBox(height: 16),
                 TextField(
                   controller: _email,
                   keyboardType: TextInputType.emailAddress,
