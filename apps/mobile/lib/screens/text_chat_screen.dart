@@ -147,7 +147,7 @@ class _TextChatScreenState extends State<TextChatScreen> {
     await Clipboard.setData(ClipboardData(text: text));
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Draft copied. Review and send manually.')),
+      const SnackBar(content: Text('Draft copied to clipboard.')),
     );
   }
 
@@ -156,7 +156,19 @@ class _TextChatScreenState extends State<TextChatScreen> {
     final channel = _draftChannel;
     if (text.isEmpty || channel == null) return;
     final uri = buildComposeUri(channel: channel, body: text);
-    await launchUrl(uri, mode: LaunchMode.externalApplication);
+    try {
+      final launched = await launchUrl(uri, mode: LaunchMode.externalApplication);
+      if (!launched && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Could not open ${composeChannelLabel(channel)} app.')),
+        );
+      }
+    } catch (_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Could not open ${composeChannelLabel(channel)} app.')),
+      );
+    }
   }
 
   @override
