@@ -78,7 +78,7 @@
 - [x] Wake → start Live in Companion (`toggleLive`)
 - [x] Settings: "Listen for Hi Pal" toggle (default off)
 - [x] Companion teaching copy + `/daily/live-greeting?show_wake_intro`
-- [ ] Sensitivity slider (deferred)
+- Sensitivity slider (deferred)
 
 ### C2 — Background listening (done — Android)
 
