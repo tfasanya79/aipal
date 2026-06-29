@@ -7,7 +7,14 @@ import 'package:sign_in_with_apple/sign_in_with_apple.dart';
 import '../config.dart';
 
 class SocialAuthService {
-  static final _google = GoogleSignIn(scopes: ['email']);
+  // Web client ID is required on Android so Google returns an idToken
+  static const _webClientId =
+      '312942098853-jun8att48f1hnkmhp7ibl3thrleoomik.apps.googleusercontent.com';
+
+  static final _google = GoogleSignIn(
+    scopes: ['email'],
+    serverClientId: _webClientId,
+  );
 
   static Future<Map<String, dynamic>?> signInWithGoogle(String? serverToken) async {
     final account = await _google.signIn();
