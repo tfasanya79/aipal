@@ -24,6 +24,7 @@ class Settings(BaseSettings):
     google_client_id: str = ""
     apple_team_id: str = ""
     apple_client_id: str = ""
+    resend_api_key: str = ""
 
 
 @lru_cache

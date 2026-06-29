@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Your AiPal Weekly Summary</title>
+  <style>
+    body { font-family: Arial, sans-serif; background: #f4f4f4; margin: 0; padding: 0; }
+    .wrapper { max-width: 560px; margin: 32px auto; background: #ffffff; border-radius: 8px; overflow: hidden; }
+    .header { background: #0D1117; padding: 24px; text-align: center; }
+    .header h1 { color: #E8A838; margin: 0; font-size: 22px; }
+    .header p { color: #9B7EDE; margin: 4px 0 0; font-size: 13px; }
+    .body { padding: 24px; }
+    .stat-row { display: flex; gap: 12px; margin-bottom: 16px; }
+    .stat { flex: 1; background: #f8f9fa; border-radius: 6px; padding: 14px; text-align: center; }
+    .stat .num { font-size: 28px; font-weight: bold; color: #E8A838; }
+    .stat .lbl { font-size: 12px; color: #666; margin-top: 4px; }
+    .note { background: #f0f4ff; border-left: 3px solid #9B7EDE; padding: 12px 16px; border-radius: 4px; margin-bottom: 16px; color: #333; font-size: 14px; }
+    .footer { background: #0D1117; padding: 16px; text-align: center; color: #666; font-size: 11px; }
+    .footer a { color: #9B7EDE; }
+  </style>
+</head>
+<body>
+  <div class="wrapper">
+    <div class="header">
+      <h1>AiPal Weekly Summary</h1>
+      <p>{{ week_start }} — {{ week_end }}</p>
+    </div>
+    <div class="body">
+      <p>Hey {{ wake_name }},</p>
+      <div class="stat-row">
+        <div class="stat"><div class="num">{{ tasks_completed }}</div><div class="lbl">Tasks Completed</div></div>
+        <div class="stat"><div class="num">{{ streak_days }}</div><div class="lbl">Day Streak</div></div>
+        <div class="stat"><div class="num">{{ tasks_deferred }}</div><div class="lbl">Deferred</div></div>
+      </div>
+      {% if top_categories %}
+      <p style="font-size:13px;color:#555;">Top categories this week:
+        {% for cat in top_categories %}<strong>{{ cat.category }}</strong> ({{ cat.count }}){% if not loop.last %}, {% endif %}{% endfor %}
+      </p>
+      {% endif %}
+      {% if companion_note %}
+      <div class="note">{{ companion_note }}</div>
+      {% endif %}
+    </div>
+    <div class="footer">
+      You're receiving this because weekly summaries are enabled in AiPal.<br>
+      <a href="#">Manage settings</a>
+    </div>
+  </div>
+</body>
+</html>
