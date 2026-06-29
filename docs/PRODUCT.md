@@ -132,7 +132,7 @@ See [`decisions/companion-c4.md`](./decisions/companion-c4.md).
 
 ### C4+ — Deferred
 
-- [ ] Compose message draft — user describes intent; AiPal drafts SMS/email for user review, edit, and manual send (no auto-send)
+- [x] Compose message draft — user describes intent; AiPal drafts SMS/email for user review, edit, and manual send (no auto-send)
 
 ### C5 — Personal Assistant brain (Done, build 48)
 
