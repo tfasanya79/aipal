@@ -16,6 +16,7 @@ void main() {
   test('normalizeDraftText trims wrapped quotes', () {
     expect(normalizeDraftText('"Hello there"'), 'Hello there');
     expect(normalizeDraftText("'Hello there'"), 'Hello there');
+    expect(normalizeDraftText('"Hello there\''), '"Hello there\'');
     expect(normalizeDraftText('Hello there'), 'Hello there');
   });
 

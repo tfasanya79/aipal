@@ -25,14 +25,11 @@ Intent: $intent
 
 String normalizeDraftText(String raw) {
   final trimmed = raw.trim();
-  if (trimmed.length >= 2) {
-    final startsDouble = trimmed.startsWith('"');
-    final endsDouble = trimmed.endsWith('"');
-    final startsSingle = trimmed.startsWith("'");
-    final endsSingle = trimmed.endsWith("'");
-    if ((startsDouble && endsDouble) || (startsSingle && endsSingle)) {
-      return trimmed.substring(1, trimmed.length - 1).trim();
-    }
+  if (trimmed.length < 2) return trimmed;
+  final first = trimmed[0];
+  final last = trimmed[trimmed.length - 1];
+  if ((first == '"' || first == "'") && first == last) {
+    return trimmed.substring(1, trimmed.length - 1).trim();
   }
   return trimmed;
 }
