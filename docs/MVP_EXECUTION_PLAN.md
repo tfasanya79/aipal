@@ -262,23 +262,30 @@ false-positive rate.
 - Model v0.2 retrain was deliberately deferred until gate #5 (Hi Pal reliability) passes.  
   Gate #5 must pass in Phase 1 before Phase 2 starts.
 
+**Chosen strategy (2026-06):** in-app wake enrollment first, central retrain second.
+- Replace external tester recording dependency with on-device enrollment.
+- Each user records 5 guided utterances per phrase in-app ("Hi Pal", "HiPal", "AiPal", "Hey Pal").
+- App computes per-user wake threshold calibration locally and stores it in prefs.
+- Optional anonymized hard-negative clips (false wakes) are collected only with explicit opt-in.
+
 **Fix plan:**
 
-1. **Collect real speaker recordings** — ask internal testers (Play Internal track)  
-   to record 20–30 utterances each of "Hi Pal", "HiPal", "AiPal", "Hey Pal"  
-   into a shared folder. Use Android voice memo app, 16 kHz mono WAV preferred.
+1. **Build onboarding enrollment flow (mobile):**
+   - Add a Wake Enrollment screen in Settings.
+   - Guided script captures 5 utterances per phrase with SNR check and retry.
+   - Persist per-user calibration profile (`threshold`, `phrase hit rates`, `last_calibrated_at`).
 
-2. **Update training script** — modify `scripts/train-hi-pal-wakeword.py`:
+2. **Calibration + runtime update (mobile):**
+   - Run threshold sweep per user (e.g., 0.20–0.45) against enrollment clips + ambient sample.
+   - Store selected threshold in `WakeWordPrefs`.
+   - Feed threshold into `WakeWordEngine.activationThreshold` at startup.
+
+3. **Update training script** — modify `scripts/train-hi-pal-wakeword.py`:
    - Add `"hi pal"`, `"hipal"`, `"aipal"`, `"hey pal"` as positive phrases.
-   - Mix TTS-generated (espeak-ng) + real speaker recordings in 60/40 ratio.
+   - Mix TTS-generated positives with opted-in anonymized enrollment exports.
    - Bump `N_POS` to 800, `N_NEG` to 2000.
    - Train a new `WakeNet` targeting ≥ 92% validation accuracy.
    - Export as `hi_pal_v0.2.onnx`.
-
-3. **Update confidence threshold** — run threshold sweep (0.20–0.40) on a held-out  
-   set of real speaker clips + ambient noise clips. Pick threshold that keeps  
-   false-positive rate < 1 per 10 minutes in ambient noise.
-   Update `WakeWordEngine.activationThreshold` in `wake_word_engine.dart`.
 
 4. **Update `WakeWordEngine.wakePhrase`** static to `'Hi Pal / AiPal'` for UI copy.
 
@@ -289,7 +296,8 @@ false-positive rate.
    detection rate and false-positive count for a given model + threshold.
 
 **Acceptance criteria:**
-- All 4 phrase variants detected reliably (≥ 90% detection rate on tester clips).
+- Enrollment success ≥ 95% on supported Android devices.
+- All 4 phrase variants detected reliably (≥ 90% detection rate on enrollment replay clips).
 - False-positive rate ≤ 1 per 10 minutes in ambient TV noise test.
 - `hi_pal_v0.2.onnx` committed to `apps/mobile/assets/models/`.
 
@@ -339,8 +347,15 @@ false-positive rate.
 
 ## Phase 4 — Spotify / Music Control (Android-first)
 
-**Goal:** Replace the current Spotify stub with a fully working OAuth connection  
-and Companion-driven playback control.
+**Policy update (2026-06):** Drop Spotify Web API OAuth path for MVP and use
+Android deep-link control instead.
+
+**Reason:** Spotify's 2026 Developer Mode constraints (Premium-only dev access,
+single app per developer, max 5 test users) make Web API behavior unsuitable
+as a production-representative MVP baseline.
+
+**Goal:** Keep Companion voice music control available with no Spotify API keys,
+using local Android Spotify intents/deep links.
 
 **Current state:** `apps/api/app/modules/integrations/router.py` has a stub that:
 - Generates an OAuth authorization URL (real).
@@ -349,51 +364,26 @@ and Companion-driven playback control.
 
 **Fix plan:**
 
-1. **API — complete OAuth token exchange (`/spotify/callback`):**  
-   Exchange `code` for `access_token` + `refresh_token` via  
-   `https://accounts.spotify.com/api/token`. Store both + `expires_at` in  
-   `IntegrationToken`. Add `httpx` call (already in requirements).
-
-2. **API — add token refresh helper** `_refresh_spotify_token(db, token)`:  
-   Called automatically when `expires_at < now + 60s` before any Spotify API call.
-
-3. **API — implement `/play-music` for real:**  
-   Use Spotify Web API `PUT /me/player/play` with the user's active device.  
-   Support `query` (search → play top result) and `playlist_id` (direct URI).  
-   Scope required: `user-modify-playback-state user-read-playback-state streaming`.
-
-4. **API — add `/integrations/spotify/status` endpoint:**  
-   Returns `{connected: bool, display_name: str | None}` for settings UI.
-
-5. **API — add Spotify intent to plan extractor:**  
+1. **API — keep Spotify intent extraction in `plan_extractor.py`:**  
    Extend `plan_extractor.py` to recognise music intents:  
    `"play some jazz"`, `"put on focus music"`, `"pause the music"`, `"skip this song"`.  
-   New intent type `"music_control"` with field `action: play|pause|skip|query`.  
-   Route through `action_executor.py`.
+   Keep intent type `"music_control"` with `music_action` + `music_query`.
 
-6. **Mobile — settings screen — "Connect Spotify" button:**  
-   In `settings_screen.dart`, add an integration card that:
-   - Shows "Connect Spotify" if not connected.
-   - Launches the OAuth URL in an in-app WebView (`url_launcher`).
-   - On redirect back to `aipal://spotify-callback`, extracts `code` + `state`  
-     and POSTs to `/integrations/spotify/callback`.
-   - Shows "Connected as [display_name]" + "Disconnect" if connected.
+2. **API — return structured `music_command` payload in turn responses:**  
+   Include `{provider, action, query, mode}` so the mobile app can execute
+   device-local commands directly.
 
-7. **Mobile — Companion plays music on intent:**  
-   In `app_state.dart`, after a voice/text turn returns `tool_actions` containing  
-   `"Music: playing ..."`, show a mini music chip on the Companion screen.
+3. **Mobile — execute Android deep-link commands in `app_state.dart`:**  
+   On `music_command`, launch Spotify via `url_launcher` using `spotify:` URIs.
+   Use query search for `play` requests and app open fallback for other actions.
 
-8. **VM — add `SPOTIFY_CLIENT_ID` and `SPOTIFY_CLIENT_SECRET` to `.env` and  
-   Ansible `aipal.env.j2` template.**
-
-9. **Fallback:** If Spotify is not connected or playback fails, Companion replies:  
-   "I'd need Spotify connected to play music — go to Settings > Integrations to link it."
+4. **Settings UX:** Rename Spotify action to "Open Spotify" and remove OAuth
+   wording.
 
 **Acceptance criteria:**
-- User can connect Spotify in Settings without leaving the app.
-- Voice command "play some focus music" starts Spotify playback on Android.
-- Token refresh works silently after 1-hour expiry.
-- Disconnect clears the `IntegrationToken` row.
+- Voice command "play some focus music" opens Spotify and starts search/play flow on Android.
+- No Spotify credentials are required in deployment.
+- Music control behavior in testing matches scalable production path.
 
 ---
 
@@ -455,6 +445,65 @@ AiPal activity — tasks completed, streaks, notable patterns — delivered by e
 
 ---
 
+## Phase D-voice — Companion Voice Selection
+
+**Decision (2026-06):** App is free for all users (mandatory auth, no paywall).
+Voice selection is therefore a universal feature — every registered user can
+change their Companion's voice from Settings with no subscription gate.
+
+**Foundation:** `edge-tts` v7.2.8 is already installed on the VM. The existing
+`synthesize(text, voice=None)` function already accepts a `voice` parameter.
+No new TTS provider or API key is needed.
+
+**Curated voice catalogue (6 voices):**
+
+| ID | Display name | Gender | Style | edge-tts voice |
+|----|-------------|--------|-------|----------------|
+| `aria` | Aria (default) | Female | Warm, clear | `en-US-AriaNeural` |
+| `jenny` | Jenny | Female | Bright, friendly | `en-US-JennyNeural` |
+| `emma` | Emma | Female | Calm, natural | `en-US-EmmaNeural` |
+| `andrew` | Andrew | Male | Deep, calm | `en-US-AndrewNeural` |
+| `brian` | Brian | Male | Warm, steady | `en-US-BrianNeural` |
+| `sonia` | Sonia (British) | Female | Clear, British | `en-GB-SoniaNeural` |
+
+**Fix plan:**
+
+1. **Database — add `tts_voice` to `User` model:**
+   Add `tts_voice: str = "aria"` column.
+   Create Alembic migration `007_add_tts_voice.py`.
+
+2. **API — voice catalogue endpoint:**
+   `GET /voice/catalogue` — returns the curated list above (id, display name, gender, style, sample phrase).
+
+3. **API — update profile endpoint:**
+   Add `tts_voice` to the `PATCH /profile` request body and write it to the User row.
+
+4. **API — pass user's voice preference into TTS:**
+   In `voice/router.py`, map `user.tts_voice` to the edge-tts voice ID via a lookup table before calling `synthesize()`.
+
+5. **API — voice preview endpoint:**
+   `POST /voice/preview` — accepts `{voice_id}`, synthesizes a fixed sample phrase
+   ("Hi, I'm your AiPal Companion — ready when you are."), returns audio bytes.
+   No auth scope change needed (same as `/turn/tts`).
+
+6. **Mobile — Settings voice picker:**
+   In `settings_screen.dart`:
+   - Add a "Companion voice" section with a `ListTile` showing the current voice name.
+   - Tapping opens a bottom sheet with the 6 voice cards (gender badge, name, style tag).
+   - Each card has a ▶ play button that calls `POST /voice/preview` and plays the clip inline.
+   - On selection: call `PATCH /profile` with `{tts_voice: id}` and confirm with snackbar.
+
+7. **Mobile — load voice pref on startup:**
+   Read `profile['tts_voice']` from the stored profile in `AppState` — no extra API call needed.
+
+**Acceptance criteria:**
+- All 6 voices play without error via preview button in Settings.
+- Selecting a voice and starting a Live session uses the new voice for all Companion TTS replies.
+- Voice preference persists across app restarts and sessions.
+- Default is `aria` for all new users (applied via migration server default).
+
+---
+
 ## Phase 6 — Subscriber Authentication Gateway
 
 *This phase implements the auth gateway designed in Phase 0-C.*  
@@ -498,9 +547,10 @@ After every phase and every significant fix, update:
 [Phase 1 ] Voice reliability — all 7 VOICE_BASELINE gates pass
 [Phase 2 ] Wake phrase model v0.2 (Hi Pal, HiPal, AiPal)
 [Phase 3 ] Today intelligence uplift + regression suite
-[Phase 4 ] Spotify OAuth + playback control (Android-first)
+[Phase 4 ] Spotify Android deep-link control (OAuth path retired)
 [Phase 5-A] Weekly email summary — manual preview + send
 [Phase 5-B] Weekly email summary — automated scheduled send
+[Phase D-voice] Companion voice selection (6 voices, free for all users)
 [Phase 6 ] Subscriber gateway + tier enforcement
 [Phase 7 ] Ongoing doc sync at every phase boundary
 ```

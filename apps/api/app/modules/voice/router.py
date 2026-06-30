@@ -12,6 +12,7 @@ from pathlib import Path
 from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Depends, File, Form, UploadFile
+from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.modules.auth.service import get_current_user
@@ -21,7 +22,17 @@ from app.modules.brain.llm_provider import llm_chat, llm_stream
 from app.modules.brain.memory import remember_turn
 from app.shared.models import User
 from app.modules.brain.safety import crisis_reply, is_crisis_likely
-from app.shared.schemas import AudioTurnResponse, PlanDraftResponse, ProposedTask, TextTurnRequest, TextTurnResponse, TtsRequest, TtsResponse
+from app.shared.schemas import (
+    AudioTurnResponse,
+    MusicCommand,
+    PlanDraftResponse,
+    ProposedTask,
+    TextTurnRequest,
+    TextTurnResponse,
+    TtsRequest,
+    TtsResponse,
+    VoiceCatalogueItem,
+)
 from app.modules.brain import conversation as conv_svc
 from app.modules.brain import context_builder as ctx_svc
 from app.modules.today import plan_draft as draft_svc
@@ -32,7 +43,7 @@ from app.modules.voice import session_events as sess_svc
 from app.modules.today import tasks as task_svc
 from app.shared.timezone_util import user_local_today
 from app.modules.voice.stt import transcribe_path
-from app.modules.voice.tts import synthesize
+from app.modules.voice.tts import synthesize, get_voice_id, VOICE_CATALOGUE
 
 router = APIRouter(tags=["turn"])
 log = logging.getLogger("aipal.turn")
@@ -265,6 +276,56 @@ def _confirmed_reply(
     return reply, tool_msg
 
 
+_SENTENCE_END = re.compile(r'[.!?](?:\s|$)')
+
+
+async def _llm_reply_with_early_tts(
+    messages: list[dict],
+    voice: str,
+) -> tuple[str, bytes, str]:
+    """Stream LLM tokens; begin TTS on first sentence to reduce voice latency.
+
+    Returns (full_reply, audio_bytes, audio_mime).
+    """
+    tokens: list[str] = []
+    first_sent: str | None = None
+    first_tts_task: asyncio.Task | None = None
+
+    async for token in llm_stream(messages):
+        tokens.append(token)
+        accumulated = "".join(tokens)
+        if first_sent is None and _SENTENCE_END.search(accumulated):
+            # First sentence ready — kick off TTS while rest streams
+            first_sent = accumulated.strip()
+            first_tts_task = asyncio.create_task(synthesize(first_sent, voice))
+
+    full_reply = "".join(tokens).strip()
+    if not full_reply:
+        return "", b"", "audio/mpeg"
+
+    # If first sentence TTS already running, synthesize remainder in parallel
+    if first_tts_task is not None and first_sent and full_reply != first_sent:
+        remainder = full_reply[len(first_sent):].strip()
+
+        async def _empty_audio() -> tuple[bytes, str]:
+            return b"", "audio/mpeg"
+
+        first_bytes_result, remainder_result = await asyncio.gather(
+            first_tts_task,
+            synthesize(remainder, voice) if remainder else _empty_audio(),
+        )
+        first_bytes, first_mime = first_bytes_result
+        remainder_bytes, audio_mime = remainder_result
+        return full_reply, first_bytes + remainder_bytes, first_mime or audio_mime
+    elif first_tts_task is not None:
+        audio_bytes, audio_mime = await first_tts_task
+        return full_reply, audio_bytes, audio_mime
+    else:
+        # Very short reply (no sentence end) — synthesize once
+        audio_bytes, audio_mime = await synthesize(full_reply, voice)
+        return full_reply, audio_bytes, audio_mime
+
+
 async def _recover_edit_from_history(
     db: AsyncSession,
     user: User,
@@ -336,10 +397,10 @@ async def _reply_for_text(
     session_id: str | None = None,
     *,
     channel: str = "text",
-) -> tuple[str, bool, list[str], str, PlanDraftResponse | None]:
+) -> tuple[str, bool, list[str], str, PlanDraftResponse | None, MusicCommand | None]:
     sid = session_id or str(uuid.uuid4())
     if is_crisis_likely(text):
-        return crisis_reply(), True, [], sid, None
+        return crisis_reply(), True, [], sid, None, None
 
     local_day = user_local_today(user.timezone)
     tz = user.timezone or "UTC"
@@ -370,7 +431,7 @@ async def _reply_for_text(
                 tool_msg = edit_result.tool_actions or []
                 await conv_svc.append_turn(db, user.id, sid, "user", text)
                 await conv_svc.append_turn(db, user.id, sid, "assistant", reply)
-                return reply, False, tool_msg, sid, None
+                return reply, False, tool_msg, sid, None, None
             created = await draft_svc.confirm_draft(db, user.id, timezone=tz)
             if created:
                 reply, tool_msg = _confirmed_reply(created, local_day=local_day, tz=tzinfo)
@@ -379,13 +440,13 @@ async def _reply_for_text(
                 tool_msg = "Confirmed plan: duplicates skipped"
             await conv_svc.append_turn(db, user.id, sid, "user", text)
             await conv_svc.append_turn(db, user.id, sid, "assistant", reply)
-            return reply, False, [tool_msg], sid, None
+            return reply, False, [tool_msg], sid, None, None
         if plan_intent.is_discard_intent(text):
             await draft_svc.clear_draft(db, user.id)
             reply = "Okay, I won't add that plan to Today."
             await conv_svc.append_turn(db, user.id, sid, "user", text)
             await conv_svc.append_turn(db, user.id, sid, "assistant", reply)
-            return reply, False, ["Discarded plan draft"], sid, None
+            return reply, False, ["Discarded plan draft"], sid, None, None
 
     if plan_intent.is_confirm_intent(text) and not (
         pending_early and (pending_early.get("proposed_tasks") or _is_edit_draft(pending_early))
@@ -408,14 +469,14 @@ async def _reply_for_text(
             uid = str(user.id)
             asyncio.create_task(asyncio.to_thread(remember_turn, uid, role="user", text=text, session_id=sid))
             asyncio.create_task(asyncio.to_thread(remember_turn, uid, role="assistant", text=reply, session_id=sid))
-            return reply, False, tool_msgs, sid, None
+            return reply, False, tool_msgs, sid, None, None
         if plan_intent.assistant_offered_to_update(history) and not plan_intent.assistant_offered_to_add(
             history
         ):
             reply = _HONEST_NOT_CHANGED
             await conv_svc.append_turn(db, user.id, sid, "user", text)
             await conv_svc.append_turn(db, user.id, sid, "assistant", reply)
-            return reply, False, [], sid, None
+            return reply, False, [], sid, None, None
         recovered = await _recover_and_confirm_from_history(
             db,
             user,
@@ -432,17 +493,18 @@ async def _reply_for_text(
             uid = str(user.id)
             asyncio.create_task(asyncio.to_thread(remember_turn, uid, role="user", text=text, session_id=sid))
             asyncio.create_task(asyncio.to_thread(remember_turn, uid, role="assistant", text=reply, session_id=sid))
-            return reply, False, [tool_msg], sid, None
+            return reply, False, [tool_msg], sid, None, None
         if plan_intent.assistant_offered_to_add(history):
             reply = _HONEST_NO_PENDING
             await conv_svc.append_turn(db, user.id, sid, "user", text)
             await conv_svc.append_turn(db, user.id, sid, "assistant", reply)
-            return reply, False, [], sid, None
+            return reply, False, [], sid, None, None
 
     tool_actions, today_snap = await asyncio.gather(
         task_svc.apply_task_tools_from_text(db, user.id, text, timezone=tz),
         task_svc.today_view(db, user.id, local_day, timezone=tz),
     )
+    music_command: MusicCommand | None = None
     companion = await ctx_svc.build_companion_context(db, user, text, today_snap=today_snap)
 
     if plan_extractor.needs_plan_extraction(text):
@@ -467,18 +529,14 @@ async def _reply_for_text(
     if extracted.get("intent") == "music_control":
         music_action = extracted.get("music_action") or "play"
         music_query = extracted.get("music_query")
-        from app.modules.integrations.router import play_music as _play_music_fn, PlayMusicRequest
-        music_req = PlayMusicRequest(provider="spotify", action=music_action, query=music_query)
-        try:
-            music_result = await _play_music_fn(music_req, user=user, db=db)
-            if music_result.get("ok"):
-                label = music_result.get("playlist") or music_result.get("track") or music_query or music_action
-                tool_actions.append(f"Music: {music_action} — {label}")
-            else:
-                tool_actions.append(f"Music: {music_result.get('message', 'Spotify not connected')}")
-        except Exception as exc:
-            log.warning("Music intent handler failed: %s", exc)
-            tool_actions.append("Music: Spotify not connected — link it in Settings > Integrations")
+        music_command = MusicCommand(
+            provider="spotify",
+            action=music_action,
+            query=music_query,
+            mode="android_deep_link",
+        )
+        label = (music_query or music_action).strip() if isinstance(music_query, str) else music_action
+        tool_actions.append(f"Music: queued on device — {music_action} ({label})")
 
     if extracted.get("intent") == "edit_task":
         lower = (text or "").lower()
@@ -500,7 +558,7 @@ async def _reply_for_text(
             uid = str(user.id)
             asyncio.create_task(asyncio.to_thread(remember_turn, uid, role="user", text=text, session_id=sid))
             asyncio.create_task(asyncio.to_thread(remember_turn, uid, role="assistant", text=reply, session_id=sid))
-            return reply, False, edit_result.tool_actions or [], sid, None
+            return reply, False, edit_result.tool_actions or [], sid, None, None
 
     delete_result = await act_svc.try_handle_delete(db, user.id, text, today_snap)
     if delete_result and delete_result.handled:
@@ -512,7 +570,7 @@ async def _reply_for_text(
         uid = str(user.id)
         asyncio.create_task(asyncio.to_thread(remember_turn, uid, role="user", text=text, session_id=sid))
         asyncio.create_task(asyncio.to_thread(remember_turn, uid, role="assistant", text=reply, session_id=sid))
-        return reply, False, delete_result.tool_actions or [], sid, None
+        return reply, False, delete_result.tool_actions or [], sid, None, None
 
     plan_draft_payload = None
     auto_confirmed = False
@@ -551,7 +609,7 @@ async def _reply_for_text(
                     uid = str(user.id)
                     asyncio.create_task(asyncio.to_thread(remember_turn, uid, role="user", text=text, session_id=sid))
                     asyncio.create_task(asyncio.to_thread(remember_turn, uid, role="assistant", text=reply, session_id=sid))
-                    return reply, False, tool_actions, sid, None
+                    return reply, False, tool_actions, sid, None, None
                 plan_draft_payload = extracted
             else:
                 plan_draft_payload = extracted
@@ -583,13 +641,20 @@ async def _reply_for_text(
         uid = str(user.id)
         asyncio.create_task(asyncio.to_thread(remember_turn, uid, role="user", text=text, session_id=sid))
         asyncio.create_task(asyncio.to_thread(remember_turn, uid, role="assistant", text=reply, session_id=sid))
-        return reply, False, tool_actions, sid, None
+        return reply, False, tool_actions, sid, None, music_command
 
     messages = list(history)
     prefix = "[Context" if not messages else "[State"
     messages.append({"role": "user", "content": f"{prefix}: {system_ctx}]\n\n{text}"})
 
-    reply = await llm_chat(messages)
+    if channel == "audio":
+        # Use streaming for voice turns to reduce time-to-first-token
+        reply_tokens: list[str] = []
+        async for token in llm_stream(messages):
+            reply_tokens.append(token)
+        reply = "".join(reply_tokens).strip()
+    else:
+        reply = await llm_chat(messages)
 
     if re.search(r"\bi['']?ll add\b|\bi will add\b", reply, re.IGNORECASE) and not (
         _has_mutation_tool_action(tool_actions) or _has_confirmed_plan(tool_actions)
@@ -653,7 +718,7 @@ async def _reply_for_text(
     asyncio.create_task(asyncio.to_thread(remember_turn, uid, role="user", text=text, session_id=sid))
     asyncio.create_task(asyncio.to_thread(remember_turn, uid, role="assistant", text=reply, session_id=sid))
 
-    return reply, False, tool_actions, sid, _draft_to_schema(plan_draft_payload or pending)
+    return reply, False, tool_actions, sid, _draft_to_schema(plan_draft_payload or pending), music_command
 
 
 @router.post("/turn/text", response_model=TextTurnResponse)
@@ -662,13 +727,16 @@ async def text_turn(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    reply, crisis, tool_actions, sid, draft = await _reply_for_text(db, user, body.text, body.session_id)
+    reply, crisis, tool_actions, sid, draft, music_command = await _reply_for_text(
+        db, user, body.text, body.session_id
+    )
     return TextTurnResponse(
         reply=reply,
         crisis=crisis,
         tool_actions=tool_actions,
         session_id=sid,
         plan_draft=draft,
+        music_command=music_command,
     )
 
 
@@ -686,7 +754,9 @@ async def text_turn_stream(
     """
     from fastapi.responses import StreamingResponse
 
-    reply, crisis, tool_actions, sid, draft = await _reply_for_text(db, user, body.text, body.session_id)
+    reply, crisis, tool_actions, sid, draft, music_command = await _reply_for_text(
+        db, user, body.text, body.session_id
+    )
 
     async def event_generator():
         for token in reply:
@@ -699,6 +769,7 @@ async def text_turn_stream(
             "tool_actions": tool_actions,
             "session_id": sid,
             "plan_draft": draft.model_dump() if draft else None,
+            "music_command": music_command.model_dump() if music_command else None,
         })
         yield f"data: {done_payload}\n\n"
 
@@ -815,7 +886,7 @@ async def audio_turn(
         )
 
     t_reply = time.monotonic()
-    reply, crisis, tool_actions, sid, draft = await _reply_for_text(
+    reply, crisis, tool_actions, sid, draft, music_command = await _reply_for_text(
         db, user, transcript, sid, channel="audio"
     )
     reply_ms = int((time.monotonic() - t_reply) * 1000)
@@ -844,6 +915,7 @@ async def audio_turn(
             skip_tts=True,
             tool_actions=tool_actions,
             plan_draft=draft,
+            music_command=music_command,
         )
 
     if reply == _HONEST_NOT_ADDED and not plan_extractor.needs_plan_extraction(transcript):
@@ -860,13 +932,15 @@ async def audio_turn(
             skip_tts=True,
             tool_actions=tool_actions,
             plan_draft=draft,
+            music_command=music_command,
         )
 
     draft_confirmed = bool(
         tool_actions and any(a.startswith("Confirmed plan:") for a in tool_actions)
     )
     t_tts = time.monotonic()
-    audio_bytes, audio_mime = await synthesize(reply)
+    chosen_voice = get_voice_id(getattr(user, "tts_voice", "aria"))
+    audio_bytes, audio_mime = await synthesize(reply, chosen_voice)
     tts_ms = int((time.monotonic() - t_tts) * 1000)
     total_ms = int((time.monotonic() - t0) * 1000)
 
@@ -893,6 +967,7 @@ async def audio_turn(
         tool_actions=tool_actions,
         plan_draft=draft,
         draft_confirmed=draft_confirmed,
+        music_command=music_command,
         session_id=sid,
         audio_base64=base64.b64encode(audio_bytes).decode("ascii") if audio_bytes else None,
         audio_mime=audio_mime if audio_bytes else None,
@@ -904,9 +979,43 @@ async def tts_turn(body: TtsRequest, user: User = Depends(get_current_user)):
     text = (body.text or "").strip()
     if not text:
         return TtsResponse(text="")
-    audio_bytes, audio_mime = await synthesize(text)
+    chosen_voice = get_voice_id(getattr(user, "tts_voice", "aria"))
+    audio_bytes, audio_mime = await synthesize(text, chosen_voice)
     return TtsResponse(
         text=text,
         audio_base64=base64.b64encode(audio_bytes).decode("ascii") if audio_bytes else None,
         audio_mime=audio_mime if audio_bytes else None,
     )
+
+
+@router.get("/voice/catalogue", response_model=list[VoiceCatalogueItem])
+async def voice_catalogue(_user: User = Depends(get_current_user)):
+    """Return the curated voice options available for Companion TTS."""
+    return [
+        VoiceCatalogueItem(
+            id=v["id"],
+            display_name=v["display_name"],
+            gender=v["gender"],
+            style=v["style"],
+            is_default=v["is_default"],
+            sample_phrase=v["sample_phrase"],
+        )
+        for v in VOICE_CATALOGUE
+    ]
+
+
+class VoicePreviewRequest(BaseModel):
+    voice_id: str
+
+
+@router.post("/voice/preview")
+async def voice_preview(body: VoicePreviewRequest, _user: User = Depends(get_current_user)):
+    """Synthesize a short sample phrase in the requested voice. Returns audio/mpeg bytes."""
+    sample_phrase = "Hi, I'm your AiPal Companion — ready when you are."
+    edge_voice = get_voice_id(body.voice_id)
+    audio_bytes, audio_mime = await synthesize(sample_phrase, edge_voice)
+    if not audio_bytes:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=502, detail="TTS synthesis failed")
+    from fastapi.responses import Response as RawResponse
+    return RawResponse(content=audio_bytes, media_type=audio_mime)

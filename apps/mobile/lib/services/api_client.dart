@@ -290,4 +290,27 @@ class ApiClient {
       ).timeout(const Duration(seconds: 3));
     } catch (_) {}
   }
+
+  /// Returns raw audio bytes for the given voice ID sample phrase.
+  Future<List<int>> voicePreview(String voiceId) async {
+    final r = await _post(
+      Uri.parse('${AppConfig.apiBase}/voice/preview'),
+      body: jsonEncode({'voice_id': voiceId}),
+    ).timeout(const Duration(seconds: 15));
+    if (r.statusCode != 200) throw Exception('voice preview ${r.statusCode}');
+    return r.bodyBytes;
+  }
+
+  Future<Map<String, dynamic>> getWeeklySummary() async {
+    final r = await _get(Uri.parse('${AppConfig.apiBase}/daily/weekly-summary'));
+    if (r.statusCode != 200) throw Exception('weekly summary ${r.statusCode}');
+    return jsonDecode(r.body) as Map<String, dynamic>;
+  }
+
+  Future<bool> sendWeeklySummary() async {
+    final r = await _post(Uri.parse('${AppConfig.apiBase}/daily/weekly-summary/send'))
+        .timeout(const Duration(seconds: 20));
+    if (r.statusCode != 200) return false;
+    return (jsonDecode(r.body) as Map<String, dynamic>)['sent'] as bool? ?? false;
+  }
 }

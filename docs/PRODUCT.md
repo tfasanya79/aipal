@@ -34,8 +34,8 @@
 - **Overdue task lane** — API returns and LLM context surfaces overdue tasks from prior days
 - **Google Sign-In** — `POST /auth/google` (ID token verification via `google-auth`)
 - **Apple Sign-In** — `POST /auth/apple` (Apple JWT verification); onboarding screen updated
-- **Spotify full OAuth** — real token exchange/refresh, Spotify Web API search + playback, status + disconnect endpoints
-- **Music intent** — plan extractor recognises play/pause/skip/volume intents; routes to Spotify
+- **Spotify Android deep-link control** — Companion emits on-device music commands; mobile launches Spotify app via `spotify:` URIs (no Spotify Web API dependency)
+- **Music intent** — plan extractor recognises play/pause/skip/volume intents; routed to Android deep-link command payload
 - **Voice baseline code fixes** — gate 4 (ambient TV/YouTube patterns extended); gates 1/3/6 confirmed implemented
 - **Voice gate smoke script** — `scripts/voice-gate-smoke.sh`
 
@@ -49,7 +49,7 @@
 - [x] D1 — Voice baseline code fixes (gate 4; 1/3/6 confirmed); smoke script
 - [ ] D2 — Wake phrase model v0.2 (HiPal/AiPal variants) — *requires device tester recordings*
 - [x] D3 — Today intelligence uplift (multi-task, relative times, music intent in extractor)
-- [x] D4 — Spotify full OAuth + playback (Android-first)
+- [x] D4 — Spotify Android deep-link control (policy-safe MVP path)
 - [ ] D5-A — Weekly email summary (manual preview + send) — *in progress*
 - [ ] D5-B — Weekly email scheduled automation
 - [ ] D6 — Subscriber gateway + tier enforcement

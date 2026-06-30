@@ -34,6 +34,7 @@ class ProfileResponse(BaseModel):
     morning_brief_at: str | None = None
     evening_recap_at: str | None = None
     checkin_enabled: bool = True
+    tts_voice: str = "aria"
 
 
 class ProfileUpdate(BaseModel):
@@ -44,6 +45,16 @@ class ProfileUpdate(BaseModel):
     morning_brief_at: str | None = None
     evening_recap_at: str | None = None
     checkin_enabled: bool | None = None
+    tts_voice: str | None = None
+
+
+class VoiceCatalogueItem(BaseModel):
+    id: str
+    display_name: str
+    gender: str
+    style: str
+    is_default: bool
+    sample_phrase: str
 
 
 class TaskCreate(BaseModel):
@@ -150,12 +161,20 @@ class SuggestDayResponse(BaseModel):
     plan_draft: PlanDraftResponse | None = None
 
 
+class MusicCommand(BaseModel):
+    provider: str = "spotify"
+    action: str
+    query: str | None = None
+    mode: str = "android_deep_link"
+
+
 class TextTurnResponse(BaseModel):
     reply: str
     crisis: bool = False
     tool_actions: list[str] = Field(default_factory=list)
     session_id: str | None = None
     plan_draft: PlanDraftResponse | None = None
+    music_command: MusicCommand | None = None
 
 
 class AudioTurnResponse(BaseModel):
@@ -166,6 +185,7 @@ class AudioTurnResponse(BaseModel):
     session_id: str | None = None
     plan_draft: PlanDraftResponse | None = None
     draft_confirmed: bool = False
+    music_command: MusicCommand | None = None
     skip_tts: bool = False
     audio_base64: str | None = None
     audio_mime: str | None = None

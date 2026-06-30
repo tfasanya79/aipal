@@ -11,7 +11,72 @@ from pathlib import Path
 
 log = logging.getLogger("aipal.tts")
 
-DEFAULT_VOICE = "en-US-JennyNeural"
+DEFAULT_VOICE = "en-US-AriaNeural"
+
+# Curated voice catalogue — free for all users via edge-tts (no API key required).
+VOICE_CATALOGUE: list[dict] = [
+    {
+        "id": "aria",
+        "display_name": "Aria",
+        "gender": "Female",
+        "style": "Warm, clear",
+        "edge_voice": "en-US-AriaNeural",
+        "is_default": True,
+        "sample_phrase": "Hi, I'm your AiPal Companion — ready when you are.",
+    },
+    {
+        "id": "jenny",
+        "display_name": "Jenny",
+        "gender": "Female",
+        "style": "Bright, friendly",
+        "edge_voice": "en-US-JennyNeural",
+        "is_default": False,
+        "sample_phrase": "Hi, I'm your AiPal Companion — ready when you are.",
+    },
+    {
+        "id": "emma",
+        "display_name": "Emma",
+        "gender": "Female",
+        "style": "Calm, natural",
+        "edge_voice": "en-US-EmmaNeural",
+        "is_default": False,
+        "sample_phrase": "Hi, I'm your AiPal Companion — ready when you are.",
+    },
+    {
+        "id": "andrew",
+        "display_name": "Andrew",
+        "gender": "Male",
+        "style": "Deep, calm",
+        "edge_voice": "en-US-AndrewNeural",
+        "is_default": False,
+        "sample_phrase": "Hi, I'm your AiPal Companion — ready when you are.",
+    },
+    {
+        "id": "brian",
+        "display_name": "Brian",
+        "gender": "Male",
+        "style": "Warm, steady",
+        "edge_voice": "en-US-BrianNeural",
+        "is_default": False,
+        "sample_phrase": "Hi, I'm your AiPal Companion — ready when you are.",
+    },
+    {
+        "id": "sonia",
+        "display_name": "Sonia (British)",
+        "gender": "Female",
+        "style": "Clear, British",
+        "edge_voice": "en-GB-SoniaNeural",
+        "is_default": False,
+        "sample_phrase": "Hi, I'm your AiPal Companion — ready when you are.",
+    },
+]
+
+_VOICE_MAP: dict[str, str] = {v["id"]: v["edge_voice"] for v in VOICE_CATALOGUE}
+
+
+def get_voice_id(voice_pref: str | None) -> str:
+    """Resolve a user voice preference ID to an edge-tts voice name."""
+    return _VOICE_MAP.get(voice_pref or "aria", DEFAULT_VOICE)
 
 
 async def _edge_synth(text: str, voice: str) -> bytes:

@@ -6,7 +6,7 @@ from app.modules.auth.service import get_current_user
 from app.shared.db import get_db
 from app.modules.brain.memory import memory_delete_user
 from app.shared.models import IntegrationToken, LiveSession, Task, User
-from app.shared.schemas import ProfileResponse, ProfileUpdate, str_to_time, time_to_str
+from app.shared.schemas import ProfileResponse, ProfileUpdate, VoiceCatalogueItem, str_to_time, time_to_str
 
 router = APIRouter(tags=["profile"])
 
@@ -22,6 +22,7 @@ def user_to_profile(user: User) -> ProfileResponse:
         morning_brief_at=time_to_str(user.morning_brief_at),
         evening_recap_at=time_to_str(user.evening_recap_at),
         checkin_enabled=user.checkin_enabled,
+        tts_voice=getattr(user, "tts_voice", "aria") or "aria",
     )
 
 
@@ -50,6 +51,8 @@ async def update_profile(
         user.evening_recap_at = str_to_time(body.evening_recap_at)
     if body.checkin_enabled is not None:
         user.checkin_enabled = body.checkin_enabled
+    if body.tts_voice is not None:
+        user.tts_voice = body.tts_voice
     await db.commit()
     await db.refresh(user)
     return user_to_profile(user)

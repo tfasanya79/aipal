@@ -4,6 +4,7 @@ import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 class WakeWordPrefs {
   static const _enabledKey = 'wake_word_enabled';
   static const _introKey = 'wake_word_intro_shown';
+  static const _enrolledKey = 'wake_word_enrolled';
   static const _storage = FlutterSecureStorage();
 
   static Future<bool> isEnabled() async {
@@ -22,5 +23,14 @@ class WakeWordPrefs {
 
   static Future<void> markIntroShown() async {
     await _storage.write(key: _introKey, value: 'true');
+  }
+
+  static Future<bool> isEnrolled() async {
+    final v = await _storage.read(key: _enrolledKey);
+    return v == 'true';
+  }
+
+  static Future<void> markEnrollmentDone() async {
+    await _storage.write(key: _enrolledKey, value: 'true');
   }
 }

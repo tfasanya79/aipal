@@ -102,30 +102,20 @@ it goes into `apps/mobile/android/app/google-services.json`.
 
 ## 3 — Spotify (music control)
 
-**What it enables:** `GET /integrations/spotify/authorize` → real OAuth →
-Companion voice commands ("play some jazz", "pause music", "skip this song").
+**Current policy decision (2026-06):** We dropped Spotify Web API OAuth for MVP.
 
-**Cost:** Free (Spotify Web API — no quota for personal/MVP use).
+**Reason:** Spotify Developer Mode now has hard limits (Premium-only dev accounts,
+1 app per developer, and max 5 test users). That makes MVP test behavior diverge
+from production reality and risks shipping a music feature that cannot scale.
 
-### Steps
-
-1. Go to **https://developer.spotify.com/dashboard** → log in with your Spotify account.
-2. Click **Create app**.
-   - App name: `AiPal`
-   - App description: `Voice-first AI companion music control`
-   - Redirect URI: `aipal://spotify-callback`
-     *(This must match exactly. Add a second one for web testing: `http://localhost:8102/integrations/spotify/callback`)*
-   - Which API/SDKs: check **Web API**
-   - Agree to terms → **Save**
-3. On the app dashboard, click **Settings**.
-4. Copy the **Client ID** and **Client Secret** (click "View client secret").
+**What we use now:** Android deep links (`spotify:` URIs) from the mobile app.
+- No Spotify API keys required.
+- Works with installed Spotify app.
+- Commands currently supported by AiPal voice flow: open/play via search query.
 
 ### What to give back to Copilot
 
-```
-SPOTIFY_CLIENT_ID=xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
-SPOTIFY_CLIENT_SECRET=xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
-```
+Nothing for Spotify credentials.
 
 ---
 
@@ -179,29 +169,28 @@ to "Hi Pal". Current model only reliably triggers on "Hi Pal".
 
 **Cost:** Free (training runs locally on the VM or any machine with Python).
 
-### Steps — collect tester recordings
+### Steps — in-app wake enrollment (preferred path)
 
-Ask **5–10 internal testers** (Play Internal track users) to each record:
+Use the app's guided Wake Enrollment flow (to be shipped in Phase 2):
 
-- **20–30 utterances** of each phrase:
-  - "Hi Pal"
-  - "HiPal" (said as one word)
-  - "AiPal" (said as one word)
-  - "Hey Pal"
-- Format: voice memo app → export as `.m4a` or `.wav`
-- Varied speaking styles: slow, fast, quiet, excited — not all the same tone
-- Each recording should be 1–3 seconds, just the phrase
+1. Open **Settings → Wake enrollment**.
+2. Record **5 utterances each** for:
+   - "Hi Pal"
+   - "HiPal"
+   - "AiPal"
+   - "Hey Pal"
+3. Stay in a quiet room for capture; then run the built-in ambient check.
+4. Save calibration — the app stores a per-user wake threshold locally.
 
-**Recommended tool:** Google Forms with a file upload question, or a shared Google
-Drive folder.
+This gives production-representative behavior without requiring external test
+recording collection.
 
 ### What to give back to Copilot
 
-Upload the recordings to a shared folder (Google Drive, Dropbox, etc.) and share
-the link. Copilot will:
-1. Download and convert to 16 kHz mono WAV
-2. Re-run `scripts/train-hi-pal-wakeword.py` with the real voices
-3. Export `hi_pal_v0.2.onnx` and update the Flutter asset
+No credentials needed. After enrollment ships, provide:
+1. Device model + Android version used for enrollment.
+2. Wake enrollment result screenshot (pass/fail + calibrated threshold).
+3. Any false-wake examples (time + phrase heard).
 
 ---
 
@@ -222,8 +211,7 @@ RESEND_FROM_EMAIL=weekly@aipal.io          # or leave blank
 GOOGLE_CLIENT_ID=...apps.googleusercontent.com
 # also drop google-services.json into apps/mobile/android/app/ in the repo
 
-SPOTIFY_CLIENT_ID=...
-SPOTIFY_CLIENT_SECRET=...
+# Spotify credentials are no longer required (Android deep-link mode)
 
 # Apple — only needed before iOS App Store submission:
 # APPLE_TEAM_ID=...
@@ -231,8 +219,8 @@ SPOTIFY_CLIENT_SECRET=...
 # APPLE_KEY_ID=...
 # (upload the .p8 file separately)
 
-# Wake model — share recordings folder link:
-# WAKE_RECORDINGS_URL=https://drive.google.com/...
+# Wake model:
+# No credential required. Share enrollment test evidence instead.
 
 # ──────────────────────────────────────────────────────────────────────────
 ```
@@ -245,10 +233,10 @@ SPOTIFY_CLIENT_SECRET=...
 |------|---------------|----------|
 | Resend API key | 5 min | 🔴 High — needed for weekly emails |
 | Google OAuth setup | 20 min | 🔴 High — needed for social login |
-| Spotify app | 10 min | 🔴 High — needed for music control |
+| Spotify credentials | 0 min | ✅ Not required in deep-link mode |
 | Apple Sign-In | 20 min | 🟡 Medium — required for iOS, not Android |
-| Wake recordings | 1–2 days (async) | 🟡 Medium — model retrain |
+| Wake enrollment | 15 min per user | 🟡 Medium — calibration + model retrain |
 
 > **Quickest path to a fully working demo:**  
-> Do **Resend + Google + Spotify** (≈35 minutes) → paste back → Copilot deploys.
-> Apple and wake model can follow later.
+> Do **Resend + Google** (≈25 minutes) → paste back → Copilot deploys.
+> Apple can follow later; wake enrollment runs inside the app flow.

@@ -101,6 +101,7 @@ class _TodayScreenState extends State<TodayScreen> {
         final summary = view?['summary'] as Map<String, dynamic>?;
         final sections = view?['sections'] as Map<String, dynamic>?;
         final upNext = view?['up_next'] as Map<String, dynamic>?;
+        final overdue = (sections?['overdue'] as List?)?.cast<Map<String, dynamic>>() ?? [];
         final now = (sections?['now'] as List?)?.cast<Map<String, dynamic>>() ?? [];
         final upcoming = (sections?['upcoming'] as List?)?.cast<Map<String, dynamic>>() ?? [];
         final completed = (sections?['completed'] as List?)?.cast<Map<String, dynamic>>() ?? [];
@@ -222,6 +223,23 @@ class _TodayScreenState extends State<TodayScreen> {
                                     onBreakdown: () => state.breakdownTask(upNext['id'] as int),
                                     onEdit: () => _editTask(state, upNext),
                                   ),
+                                if (overdue.isNotEmpty) ...[
+                                 _sectionLabel('Overdue', color: Colors.redAccent.shade100),
+                                 ...overdue.map((t) => TimelineTaskTile(
+                                       task: t,
+                                       onTap: () => _editTask(state, t),
+                                       onComplete: () => state.completeTask(t['id'] as int),
+                                     )),
+                                 Padding(
+                                   padding: const EdgeInsets.fromLTRB(16, 4, 16, 8),
+                                   child: TextButton.icon(
+                                     icon: const Icon(Icons.schedule, size: 16),
+                                     label: const Text('Defer all overdue'),
+                                     style: TextButton.styleFrom(foregroundColor: Colors.redAccent.shade100),
+                                     onPressed: state.loading ? null : state.deferOpenTasks,
+                                   ),
+                                 ),
+                                ],
                                 if (now.isNotEmpty) ...[
                                   _sectionLabel('Now'),
                                   ...now.map((t) => TimelineTaskTile(
@@ -261,10 +279,16 @@ class _TodayScreenState extends State<TodayScreen> {
     );
   }
 
-  Widget _sectionLabel(String text) {
+  Widget _sectionLabel(String text, {Color? color}) {
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 16, 16, 4),
-      child: Text(text, style: TextStyle(color: Colors.white.withValues(alpha: 0.5), fontWeight: FontWeight.w600)),
+      child: Text(
+        text,
+        style: TextStyle(
+          color: color ?? Colors.white.withValues(alpha: 0.5),
+          fontWeight: FontWeight.w600,
+        ),
+      ),
     );
   }
 

@@ -28,6 +28,7 @@ class User(Base):
     weekly_summary_enabled: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
     auth_provider: Mapped[str] = mapped_column(String(32), default="magic_link", server_default="magic_link")
     subscription_tier: Mapped[str] = mapped_column(String(32), default="free", server_default="free")
+    tts_voice: Mapped[str] = mapped_column(String(32), default="aria", server_default="aria")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
 
     tasks: Mapped[list["Task"]] = relationship(back_populates="user")

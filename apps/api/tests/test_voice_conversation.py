@@ -61,7 +61,7 @@ async def test_audio_turn_accepts_session_id():
         patch("app.routers.turn._reply_for_text", new_callable=AsyncMock) as mock_reply,
         patch("app.routers.turn.synthesize", new_callable=AsyncMock) as mock_tts,
     ):
-        mock_reply.return_value = ("Hi!", False, [], "sess-123", None)
+        mock_reply.return_value = ("Hi!", False, [], "sess-123", None, None)
         mock_tts.return_value = (b"audio", "audio/mpeg")
 
         transport = ASGITransport(app=app)

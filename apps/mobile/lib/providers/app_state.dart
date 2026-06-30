@@ -12,6 +12,7 @@ import '../services/calendar_service.dart';
 import '../services/api_client.dart';
 import '../services/live_session.dart';
 import '../services/live_voice_loop.dart';
+import '../services/music_command_service.dart';
 import '../services/notification_service.dart';
 import '../services/session_logger.dart';
 import '../services/session_prefs.dart';
@@ -103,6 +104,8 @@ class AppState extends ChangeNotifier {
   String get _wakeName =>
       profile?['wake_name'] as String? ?? profile?['display_name'] as String? ?? 'friend';
 
+  /// The user's selected Companion voice ID (from voice catalogue). Defaults to "aria".
+  String get companionVoiceId => profile?['tts_voice'] as String? ?? 'aria';
   Map<String, dynamic>? get nextOpenTask {
     final up = todayView?['up_next'] as Map<String, dynamic>?;
     if (up != null) return up;
@@ -768,8 +771,17 @@ class AppState extends ChangeNotifier {
     );
   }
 
+  DateTime? _lastToggleLiveAt;
+
   Future<void> toggleLive() async {
     if (token == null || _toggleLiveInProgress) return;
+    // Gate 6: 300ms debounce — prevent rapid double-tap reopening a session.
+    final now = DateTime.now();
+    if (_lastToggleLiveAt != null &&
+        now.difference(_lastToggleLiveAt!) < const Duration(milliseconds: 300)) {
+      return;
+    }
+    _lastToggleLiveAt = now;
     _toggleLiveInProgress = true;
     try {
       final liveActive = _inConversation ||
@@ -986,6 +998,7 @@ class AppState extends ChangeNotifier {
       if (returnedSid != null && (liveSession.sessionId == null || liveSession.sessionId!.isEmpty)) {
         liveSession.sessionId = returnedSid;
       }
+      await _applyMusicCommand(res);
       lastTranscript = res['transcript'] as String?;
       lastReply = res['reply'] as String?;
       if (_isEndConversationIntent(lastTranscript)) {
@@ -1099,6 +1112,7 @@ class AppState extends ChangeNotifier {
     }
     final sid = sessionId ?? liveSession.sessionId ?? 'text';
     final res = await api.textTurn(text, sessionId: sid);
+    await _applyMusicCommand(res);
     _lastExportSessionId = res['session_id'] as String? ?? sid;
     await _sessionLogger.log(
       _lastExportSessionId!,
@@ -1111,6 +1125,19 @@ class AppState extends ChangeNotifier {
     await refreshTodayView();
     notifyListeners();
     return res;
+  }
+
+  Future<void> _applyMusicCommand(Map<String, dynamic> res) async {
+    if (!_isAndroid) return;
+    final command = res['music_command'];
+    if (command is! Map) return;
+    final launched = await MusicCommandService.launchSpotify(Map<String, dynamic>.from(command));
+    if (!launched) {
+      final action = (command['action'] as String? ?? 'play').toLowerCase();
+      if (action == 'play') {
+        lastReply = "I couldn't open Spotify on this device. Install Spotify and try again.";
+      }
+    }
   }
 
   Future<Map<String, dynamic>?> exportLastSession() async {
