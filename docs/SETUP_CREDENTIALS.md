@@ -1,242 +1,295 @@
-# AiPal — Credentials Setup Guide
+# AiPal — Credentials & Setup Guide
 
-**Purpose:** This file tells you exactly what accounts/steps are needed to activate
-the features that are currently configured but not yet live.  
-**Time estimate:** ~45–60 minutes total across all providers.  
-**After each section:** note the values listed under "What to give back" — paste them
-back to Copilot and the VM will be configured automatically.
+**Purpose:** Every external credential, VM configuration step, and pending feature
+activation — with clear status so you always know what still needs your input.
+
+**Legend:**
+- ✅ **DONE** — configured and live on the production VM
+- ⏳ **PENDING** — steps you need to do; what to return is listed at the bottom
+- 🔵 **DEPRIORITISED** — intentionally skipped for current phase; revisit later
 
 ---
 
-## 1 — Resend (weekly email summary)
+## Quick status snapshot
 
-**What it enables:** `POST /daily/weekly-summary/send` — delivers the weekly
-activity email to each user's inbox.
+| # | Item | Status | Blocks |
+|---|------|--------|--------|
+| 1 | Resend email API key | ✅ **DONE** | Weekly email send |
+| 2 | Google OAuth (Android Sign-In) | ✅ **DONE** | Social login |
+| 3 | Spotify credentials | ✅ **DONE** (none needed) | Music control |
+| 4 | Wake phrase model v0.2 retrain | ⏳ **PENDING** — use in-app enrollment | Wake HiPal/AiPal |
+| 5 | Scheduled weekly email (cron) | ⏳ **PENDING** — VM systemd timer needed | Auto email every Sunday |
+| 6 | Apple Sign-In | ⏳ **PENDING** — before iOS App Store only | iOS social login |
+| 7 | Subscriber gateway / tier enforcement | 🔵 **DEPRIORITISED** — app is free | Paid tier gating |
 
-**Cost:** Free tier — 3,000 emails/month, 1 domain. Sufficient for MVP.
+---
 
-### Steps
+## ✅ 1 — Resend (weekly email summary)
 
-1. Go to **https://resend.com** → click **Sign up** (use your work email).
-2. Verify your email address.
-3. On the dashboard, click **API Keys** → **Create API Key**.
-   - Name: `aipal-production`
-   - Permission: **Sending access**
-4. Copy the key — it starts with `re_`. **You only see it once.**
-5. *(Optional but recommended)* Click **Domains** → **Add Domain** → enter `aipal.io`
-   (or whatever domain you own). Follow the DNS steps (adds 3 TXT/MX records).
-   If you skip this, emails send from `onboarding@resend.dev` — fine for MVP testing.
+**Status: DONE** — `RESEND_API_KEY` is set on the VM.  
+- Weekly summary API: `GET /daily/weekly-summary` ✅  
+- Manual send: `POST /daily/weekly-summary/send` ✅ (Settings → "Preview & Send")  
+- Sender: Resend shared domain (`onboarding@resend.dev`) until custom domain is added.
+
+**Nothing to do now.**  
+Optional future upgrade: add `aipal.io` as a custom sending domain in the Resend dashboard
+and set `RESEND_FROM_EMAIL=weekly@aipal.io` on the VM.
+
+---
+
+## ✅ 2 — Google OAuth (Sign in with Google)
+
+**Status: DONE** — `GOOGLE_CLIENT_ID` is set on the VM.  
+- Backend: `POST /auth/google` ✅  
+- Mobile: `social_auth_service.dart` uses Web client ID as `serverClientId` ✅  
+- Both Android clients registered (debug SHA-1 + Play App Signing SHA-1) ✅
+
+**Web client ID on VM:**
+`312942098853-jun8att48f1hnkmhp7ibl3thrleoomik.apps.googleusercontent.com`
+
+**Nothing to do now.**
+
+---
+
+## ✅ 3 — Spotify (music control)
+
+**Status: DONE — no credentials needed.**
+
+**Decision (2026-06):** Spotify Web API OAuth dropped for MVP.  
+Reason: Spotify's 2026 Developer Mode is Premium-only, 1 app/developer, max 5 test users.
+This makes dev-mode behavior non-representative of production.
+
+**What we use:** Android device-local deep links (`spotify:` URIs via `url_launcher`).  
+- No API keys or OAuth flow required.  
+- Companion voice commands (play/pause/skip) open Spotify directly on the device.
+
+**Nothing to do now.**
+
+---
+
+## ⏳ 4 — Wake phrase model v0.2 (HiPal / AiPal variants)
+
+**Status: PENDING — in-app enrollment screen shipped; awaiting real usage data.**
+
+**What it unlocks:** Reliable detection of "HiPal", "AiPal", "Hey Pal" (not just "Hi Pal").
+Current model (`hi_pal_v0.1.onnx`) was trained on TTS-only "hi pal" — it misses natural variants.
+
+### What was already shipped (you don't need to do these)
+- ✅ Wake enrollment screen in app (`Settings → Calibrate wake phrase`)
+- ✅ Guided 5-utterance recording per phrase (Hi Pal / HiPal / AiPal)
+- ✅ Per-user threshold calibration saved to device prefs
+
+### Steps for you to do
+
+**Step 4-A: Run enrollment on at least 1 test device**
+1. Install the latest Play Internal build on your Android device.
+2. Open **Settings → Calibrate wake phrase**.
+3. Follow the on-screen prompts — say each phrase 5 times in a quiet room.
+4. The screen will show: "✓ Hi Pal recorded" → "✓ HiPal recorded" → "✓ AiPal recorded" → "All done!"
+5. Enable "Listen for Hi Pal" (toggle in Settings) and test all three phrases.
+
+**Step 4-B: Collect evidence to return to Copilot**
+
+After testing, send back:
+- Your Android device model + Android version (e.g. "Pixel 8, Android 14")
+- Which phrases triggered correctly / didn't trigger
+- Any false-wake examples (what was playing / what the ambient environment was)
+- Screenshot of the enrollment completion screen (optional)
+
+**Step 4-C: Model retrain (Copilot will do this)**
+
+Once you return enrollment evidence, Copilot will:
+1. Update `scripts/train-hi-pal-wakeword.py` to include "hipal" and "aipal" positives.
+2. Retrain → export `hi_pal_v0.2.onnx`.
+3. Update `apps/mobile/assets/models/` and deploy Play build.
 
 ### What to give back to Copilot
 
 ```
-RESEND_API_KEY=re_xxxxxxxxxxxxxxxxxxxx
-RESEND_FROM_EMAIL=weekly@aipal.io        ← or leave blank to use resend.dev default
+WAKE_ENROLL_EVIDENCE:
+Device: <model + Android version>
+Tested phrases: Hi Pal / HiPal / AiPal
+Results:
+  Hi Pal  → triggered: YES/NO
+  HiPal   → triggered: YES/NO
+  AiPal   → triggered: YES/NO
+False wakes (if any): <description of what was happening>
+Notes: <anything unusual>
 ```
 
 ---
 
-## 2 — Google OAuth (Sign in with Google)
+## ⏳ 5 — Scheduled weekly email automation
 
-**What it enables:** `POST /auth/google` on the API + the "Continue with Google"
-button in the mobile app.
+**Status: PENDING — needs a systemd timer configured on the VM.**
 
-**Cost:** Free (Google Identity Services).
+**What it unlocks:** Every Sunday at ~8 PM (user's local time) AiPal automatically
+sends the weekly summary email to every user who has enabled it — without any manual action.
 
-### Steps
+The API endpoint and email template are already built. Only the cron trigger is missing.
 
-1. Go to **https://console.cloud.google.com** → select or create a project
-   (e.g. `aipal-production`).
-2. In the left menu: **APIs & Services** → **OAuth consent screen**.
-   - User type: **External**
-   - App name: `AiPal`
-   - Support email: your email
-   - App logo: optional
-   - Scopes: click **Add or remove scopes** → add `email` and `profile`
-   - Save and continue through all steps (no test users needed for now).
-3. Go to **APIs & Services** → **Credentials** → **+ Create Credentials** →
-   **OAuth 2.0 Client ID**.
-4. Create **one client per platform**:
+### Steps for you to do on the VM
 
-   **Android client:**
-   - Application type: **Android**
-   - Package name: `com.aipal.app` *(check `apps/mobile/android/app/build.gradle` → `applicationId`)*
-   - SHA-1 certificate fingerprint: run the command below on your Mac/Linux:
-     ```bash
-     keytool -list -v -keystore ~/.android/debug.keystore \
-       -alias androiddebugkey -storepass android -keypass android \
-       | grep SHA1
-     ```
-     For the **release** signing key (the one used for Play Store):
-     ```bash
-     keytool -list -v \
-       -keystore <path-to-your-release-keystore> \
-       -alias <key-alias>
-     ```
-   - Click **Create** → copy the **Client ID** (ends in `.apps.googleusercontent.com`).
+SSH into the VM and run the following commands:
 
-   **Web client** (needed for the API backend to verify tokens):
-   - Application type: **Web application**
-   - Name: `AiPal Web/API`
-   - Authorised redirect URIs: `https://43.160.220.9.sslip.io/auth/google/callback`
-   - Click **Create** → copy the **Client ID**.
+**Step 5-A: Create the systemd service unit**
+```bash
+ssh dev@43.160.220.9
+sudo tee /etc/systemd/system/aipal-weekly-email.service > /dev/null << 'EOF'
+[Unit]
+Description=AiPal weekly summary email batch
 
-5. The **Web client ID** is what goes into the API's `GOOGLE_CLIENT_ID` env var.
-   The **Android client ID** goes into the Flutter app's `google-services.json`.
+[Service]
+Type=oneshot
+User=dev
+ExecStart=/usr/bin/curl -sf -X POST http://127.0.0.1:8102/api/v2/jobs/enqueue-weekly-summaries \
+  -H "X-Internal-Secret: $AIPAL_INTERNAL_SECRET"
+EOF
+```
 
-6. Download `google-services.json`:
-   Go to **Project settings** (gear icon) → **Your apps** → Android app →
-   **Download google-services.json**.
+**Step 5-B: Create the systemd timer unit**
+```bash
+sudo tee /etc/systemd/system/aipal-weekly-email.timer > /dev/null << 'EOF'
+[Unit]
+Description=Run AiPal weekly email every Sunday 8 PM UTC
+
+[Timer]
+OnCalendar=Sun *-*-* 18:00:00 UTC
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+EOF
+```
+
+**Step 5-C: Enable and start the timer**
+```bash
+sudo systemctl daemon-reload
+sudo systemctl enable aipal-weekly-email.timer
+sudo systemctl start aipal-weekly-email.timer
+sudo systemctl list-timers | grep aipal
+```
+
+You should see a line showing next trigger time for the timer.
+
+> **Note on internal secret:** The `/jobs/enqueue-weekly-summaries` endpoint needs
+> an internal auth header. Tell Copilot to implement this — it's a single `X-Internal-Secret`
+> header check in `config.py`. The secret value is your choice (any random string).
 
 ### What to give back to Copilot
 
+When you're ready to enable this, tell Copilot:
 ```
-GOOGLE_CLIENT_ID=xxxxxxxx-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx.apps.googleusercontent.com
-                 ↑ This is the WEB client ID (used by the API to verify tokens)
+WEEKLY_EMAIL_CRON_READY=yes
+AIPAL_INTERNAL_SECRET=<any random string you choose, e.g. 32+ char hex>
 ```
+Copilot will:
+1. Add the internal secret check to the enqueue endpoint.
+2. Set the secret on the VM.
+3. Create the systemd units above automatically.
+4. Verify the timer is registered.
 
-Also upload (or paste the path to) the downloaded `google-services.json` file —
-it goes into `apps/mobile/android/app/google-services.json`.
+**Or just say "set up the weekly email cron" and Copilot will handle all of it.**
 
 ---
 
-## 3 — Spotify (music control)
+## ⏳ 6 — Apple Sign-In (iOS only)
 
-**Current policy decision (2026-06):** We dropped Spotify Web API OAuth for MVP.
+**Status: PENDING — skip until before iOS App Store submission.**
 
-**Reason:** Spotify Developer Mode now has hard limits (Premium-only dev accounts,
-1 app per developer, and max 5 test users). That makes MVP test behavior diverge
-from production reality and risks shipping a music feature that cannot scale.
-
-**What we use now:** Android deep links (`spotify:` URIs) from the mobile app.
-- No Spotify API keys required.
-- Works with installed Spotify app.
-- Commands currently supported by AiPal voice flow: open/play via search query.
-
-### What to give back to Copilot
-
-Nothing for Spotify credentials.
-
----
-
-## 4 — Apple Sign-In (iOS App Store requirement)
-
-**What it enables:** `POST /auth/apple` + "Continue with Apple" button in the iOS app.
-**Required by Apple** for any iOS app that offers third-party social login.
+Required by Apple for any iOS app that offers social login (Google/etc.).
+Not needed for Android-only testing.
 
 **Cost:** Requires an Apple Developer account ($99/year).
 
-> **Skip this for Android-only MVP.** Come back before App Store submission.
-
-### Steps
+### Steps (do these when ready for iOS)
 
 1. Go to **https://developer.apple.com** → **Account** → **Certificates, IDs & Profiles**.
-2. **Register an App ID** (if not done):
+2. **Register an App ID**:
    - Identifiers → **+** → App IDs → App
-   - Bundle ID: `com.aipal.app` *(must match your Flutter bundle ID)*
-   - Capabilities: enable **Sign In with Apple**
-3. **Create a Service ID** (used as `apple_client_id`):
+   - Bundle ID: `io.aipal.mvp`
+   - Enable **Sign In with Apple**
+3. **Create a Service ID**:
    - Identifiers → **+** → Services IDs
    - Description: `AiPal Sign In`
-   - Identifier: `com.aipal.app.signin`
-   - Enable **Sign In with Apple** → Configure:
-     - Primary App ID: select `com.aipal.app`
-     - Domains: `43.160.220.9.sslip.io`
-     - Return URL: `https://43.160.220.9.sslip.io/auth/apple/callback`
-4. **Create a Key** (used to verify tokens on the backend):
+   - Identifier: `io.aipal.mvp.signin`
+   - Enable **Sign In with Apple** → Configure → Primary App ID → add your domain + return URL:
+     - Domain: `43.160.220.9.sslip.io`
+     - Return URL: `https://43.160.220.9.sslip.io/api/v2/auth/apple/callback`
+4. **Create a Key** (backend token verification):
    - Keys → **+** → Name: `AiPal Apple Sign In`
-   - Enable **Sign In with Apple** → Configure → Primary App ID: `com.aipal.app`
-   - Click **Continue** → **Register** → **Download** the `.p8` file
-   - Note the **Key ID** shown on screen
-5. Note your **Team ID** from the top-right of the developer portal (10-char string).
+   - Enable **Sign In with Apple** → configure → Primary App ID: `io.aipal.mvp`
+   - Download the `.p8` file (only downloadable once — keep it safe)
+   - Note the **Key ID** on screen
+5. Note your **Team ID** (10-char string top-right of developer portal).
 
 ### What to give back to Copilot
 
 ```
-APPLE_TEAM_ID=XXXXXXXXXX           ← 10-char string from top-right of developer portal
-APPLE_CLIENT_ID=com.aipal.app.signin   ← the Service ID identifier
+APPLE_TEAM_ID=XXXXXXXXXX           ← 10-char team ID
+APPLE_CLIENT_ID=io.aipal.mvp.signin
 APPLE_KEY_ID=XXXXXXXXXX            ← Key ID from step 4
 ```
-
-Also upload the `.p8` private key file (keep it secret — never commit to git).
-
----
-
-## 5 — Wake phrase model v0.2 (HiPal / AiPal variants)
-
-**What it enables:** Wake detection for "HiPal", "AiPal", "Hey Pal" in addition
-to "Hi Pal". Current model only reliably triggers on "Hi Pal".
-
-**Cost:** Free (training runs locally on the VM or any machine with Python).
-
-### Steps — in-app wake enrollment (preferred path)
-
-Use the app's guided Wake Enrollment flow (to be shipped in Phase 2):
-
-1. Open **Settings → Wake enrollment**.
-2. Record **5 utterances each** for:
-   - "Hi Pal"
-   - "HiPal"
-   - "AiPal"
-   - "Hey Pal"
-3. Stay in a quiet room for capture; then run the built-in ambient check.
-4. Save calibration — the app stores a per-user wake threshold locally.
-
-This gives production-representative behavior without requiring external test
-recording collection.
-
-### What to give back to Copilot
-
-No credentials needed. After enrollment ships, provide:
-1. Device model + Android version used for enrollment.
-2. Wake enrollment result screenshot (pass/fail + calibrated threshold).
-3. Any false-wake examples (time + phrase heard).
+Also upload the `.p8` private key file — paste its contents or share the file.
+(Never commit this to git.)
 
 ---
 
-## 6 — Summary: what to paste back
+## 🔵 7 — Subscriber gateway / tier enforcement
 
-Once you have completed the steps above, paste **all of the following** back
-to Copilot in one message, and Copilot will:
-- Write the values to the VM's `/etc/default/aipal-v2` env file
-- Restart the API
-- Confirm each feature is live with a smoke test
+**Status: DEPRIORITISED — app is free for all users (2026-06 decision).**
+
+The `subscription_tier` column exists on the User model (default `"free"`) and
+`require_subscription` dependency is ready to be wired in, but no features are
+gated behind it.
+
+**Revisit when:** paid plan pricing is decided. Likely late 2026 or v3.
+
+---
+
+## Full "paste back" template
+
+When you complete items 4 or 5 (or are ready to activate anything), paste this block:
 
 ```
-# ── Paste this block back to Copilot ──────────────────────────────────────
+# ── AiPal setup — paste completed items back to Copilot ───────────────────
 
-RESEND_API_KEY=re_...
-RESEND_FROM_EMAIL=weekly@aipal.io          # or leave blank
+## Item 4 — Wake enrollment evidence
+WAKE_ENROLL_EVIDENCE:
+Device: <model + Android version>
+Hi Pal triggered: YES/NO
+HiPal triggered:  YES/NO
+AiPal triggered:  YES/NO
+False wakes: <none / description>
 
-GOOGLE_CLIENT_ID=...apps.googleusercontent.com
-# also drop google-services.json into apps/mobile/android/app/ in the repo
+## Item 5 — Weekly email cron
+WEEKLY_EMAIL_CRON_READY=yes
+AIPAL_INTERNAL_SECRET=<random 32+ char string>
 
-# Spotify credentials are no longer required (Android deep-link mode)
+## Item 6 — Apple Sign-In (iOS only, when ready)
+APPLE_TEAM_ID=...
+APPLE_CLIENT_ID=io.aipal.mvp.signin
+APPLE_KEY_ID=...
+# (also upload the .p8 key file)
 
-# Apple — only needed before iOS App Store submission:
-# APPLE_TEAM_ID=...
-# APPLE_CLIENT_ID=com.aipal.app.signin
-# APPLE_KEY_ID=...
-# (upload the .p8 file separately)
-
-# Wake model:
-# No credential required. Share enrollment test evidence instead.
-
-# ──────────────────────────────────────────────────────────────────────────
+# ─────────────────────────────────────────────────────────────────────────
 ```
 
 ---
 
-## Checklist
+## Checklist summary
 
-| Item | Estimated time | Priority |
-|------|---------------|----------|
-| Resend API key | 5 min | 🔴 High — needed for weekly emails |
-| Google OAuth setup | 20 min | 🔴 High — needed for social login |
-| Spotify credentials | 0 min | ✅ Not required in deep-link mode |
-| Apple Sign-In | 20 min | 🟡 Medium — required for iOS, not Android |
-| Wake enrollment | 15 min per user | 🟡 Medium — calibration + model retrain |
+| Item | Status | Your effort needed |
+|------|--------|--------------------|
+| Resend API key | ✅ DONE | — |
+| Google OAuth | ✅ DONE | — |
+| Spotify | ✅ DONE (no creds) | — |
+| Wake enrollment | ⏳ PENDING | 15 min — run enrollment in app, report results |
+| Scheduled email cron | ⏳ PENDING | 10 min — tell Copilot "set up weekly email cron" |
+| Apple Sign-In | ⏳ PENDING | 20 min — before iOS App Store submission only |
+| Subscriber gate | 🔵 DEPRIORITISED | None for now |
 
-> **Quickest path to a fully working demo:**  
-> Do **Resend + Google** (≈25 minutes) → paste back → Copilot deploys.
-> Apple can follow later; wake enrollment runs inside the app flow.
+> **Quickest path to full MVP functionality:**  
+> 1. Run wake enrollment in the app → report results (item 4, 15 min)  
+> 2. Say "set up the weekly email cron" to Copilot (item 5, fully automated)  
+> Both can be done independently and in any order.
