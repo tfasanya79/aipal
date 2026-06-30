@@ -26,3 +26,11 @@ jobs:
         with:
           name: aipal-aab
           path: apps/mobile/build/app/outputs/bundle/release/app-release.aab
+      - name: Upload to Play Internal
+        uses: r0adkll/upload-google-play@v1
+        with:
+          serviceAccountJsonPlainText: ${{ secrets.PLAY_SERVICE_ACCOUNT_JSON }}
+          packageName: io.aipal.mvp
+          releaseFiles: apps/mobile/build/app/outputs/bundle/release/app-release.aab
+          track: internal
+          status: completed
