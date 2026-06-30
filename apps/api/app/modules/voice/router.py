@@ -628,6 +628,9 @@ async def _reply_for_text(
         extracted=extracted,
         history=history,
         auto_confirmed=auto_confirmed,
+        city=getattr(user, "city", None),
+        country_code=getattr(user, "country_code", None),
+        audio_channel=True,
     )
 
     if auto_confirmed:

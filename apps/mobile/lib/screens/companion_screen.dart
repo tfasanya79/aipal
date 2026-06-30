@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
@@ -17,10 +19,30 @@ class CompanionScreen extends StatefulWidget {
 }
 
 class _CompanionScreenState extends State<CompanionScreen> {
+  Timer? _thinkingTimer;
+  bool _showStillThinking = false;
+  LiveState? _lastLiveState;
+
   @override
-  void initState() {
-    super.initState();
-    // Wake sync is handled by goToTab() and finishBootstrap() — avoid double mic start here.
+  void dispose() {
+    _thinkingTimer?.cancel();
+    super.dispose();
+  }
+
+  void _updateThinkingTimer(LiveState live, AppState state) {
+    if (live == LiveState.thinking && _lastLiveState != LiveState.thinking) {
+      _thinkingTimer?.cancel();
+      _showStillThinking = false;
+      _thinkingTimer = Timer(const Duration(seconds: 8), () {
+        if (mounted && state.liveSession.state == LiveState.thinking) {
+          setState(() => _showStillThinking = true);
+        }
+      });
+    } else if (live != LiveState.thinking) {
+      _thinkingTimer?.cancel();
+      if (_showStillThinking) setState(() => _showStillThinking = false);
+    }
+    _lastLiveState = live;
   }
 
   @override
@@ -28,6 +50,7 @@ class _CompanionScreenState extends State<CompanionScreen> {
     return Consumer<AppState>(
       builder: (context, state, _) {
         final live = state.liveSession.state;
+        _updateThinkingTimer(live, state);
         final inConvo = state.inConversation;
         final label = switch (live) {
           LiveState.resting => 'Resting',
@@ -58,6 +81,35 @@ class _CompanionScreenState extends State<CompanionScreen> {
                     state.wakeWordError!,
                     textAlign: TextAlign.center,
                     style: TextStyle(fontSize: 12, color: Theme.of(context).colorScheme.error),
+                  ),
+                ),
+              if (_showStillThinking)
+                Padding(
+                  padding: const EdgeInsets.only(top: 10),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                    decoration: BoxDecoration(
+                      color: Colors.orange.withValues(alpha: 0.15),
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: Colors.orange.withValues(alpha: 0.4)),
+                    ),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        const Icon(Icons.hourglass_top, size: 16, color: Colors.orange),
+                        const SizedBox(width: 8),
+                        const Expanded(
+                          child: Text(
+                            'Still thinking… tap the orb to cancel',
+                            style: TextStyle(color: Colors.orange, fontSize: 13),
+                          ),
+                        ),
+                        GestureDetector(
+                          onTap: () => state.toggleLive(),
+                          child: const Icon(Icons.close, size: 18, color: Colors.orange),
+                        ),
+                      ],
+                    ),
                   ),
                 ),
               if (state.wakeWordListening)

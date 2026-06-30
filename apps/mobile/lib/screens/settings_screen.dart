@@ -242,106 +242,140 @@ class _SettingsScreenState extends State<SettingsScreen> {
     }
   }
 
+  Widget _sectionHeader(String label) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 20, 16, 4),
+      child: Text(
+        label.toUpperCase(),
+        style: const TextStyle(
+          fontSize: 11,
+          letterSpacing: 1.4,
+          fontWeight: FontWeight.bold,
+          color: Colors.amber,
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final state = context.watch<AppState>();
     final p = state.profile;
+    final city = p?['city'] as String?;
+    final countryCode = p?['country_code'] as String?;
+    final locationText = (city != null && city.isNotEmpty)
+        ? '$city${countryCode != null && countryCode.isNotEmpty ? ', $countryCode' : ''}'
+        : 'Not detected yet';
+
     return ListView(
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.symmetric(vertical: 8),
       children: [
+        // ── PROFILE ──────────────────────────────────────────────────
+        _sectionHeader('Profile'),
         ListTile(
-          title: const Text('Profile'),
-          subtitle: Text(p?['email']?.toString() ?? ''),
+          leading: const Icon(Icons.person_outline),
+          title: const Text('Account'),
+          subtitle: Text(
+            p?['email']?.toString() ?? '',
+            style: const TextStyle(color: Colors.white60),
+          ),
         ),
         ListTile(
+          leading: const Icon(Icons.badge_outlined),
           title: const Text('Wake name'),
-          subtitle: Text(p?['wake_name']?.toString() ?? '—'),
+          subtitle: Text(
+            p?['wake_name']?.toString() ?? '—',
+            style: const TextStyle(color: Colors.white60),
+          ),
         ),
         SwitchListTile(
+          secondary: const Icon(Icons.notifications_outlined),
+          title: const Text('Check-in enabled'),
+          subtitle: const Text(
+            'Daily companion check-in prompt',
+            style: TextStyle(color: Colors.white60),
+          ),
+          value: p?['checkin_enabled'] as bool? ?? true,
+          onChanged: (v) => state.updateProfile({'checkin_enabled': v}),
+        ),
+        const Divider(height: 1),
+
+        // ── WAKE PHRASE ───────────────────────────────────────────────
+        _sectionHeader('Wake phrase'),
+        SwitchListTile(
+          secondary: const Icon(Icons.mic_outlined),
           title: const Text('Listen for Hi Pal'),
-          subtitle: kIsWeb
-              ? const Text('Wake word is available on the Android app.')
-              : defaultTargetPlatform == TargetPlatform.android
-                  ? const Text(
-                      'Say Hi Pal anytime to start Live. Shows a listening notification while enabled. Background listening uses more battery.',
-                    )
-                  : const Text(
-                      'On the Companion tab, say Hi Pal to start Live hands-free.',
-                    ),
+          subtitle: Text(
+            kIsWeb
+                ? 'Wake word is available on the Android app.'
+                : defaultTargetPlatform == TargetPlatform.android
+                    ? 'Say Hi Pal anytime to start. Runs in background.'
+                    : 'Say Hi Pal on the Companion tab to start.',
+            style: const TextStyle(color: Colors.white60),
+          ),
           value: state.wakeWordEnabled,
           onChanged: kIsWeb ? null : (v) => state.setWakeWordEnabled(v),
         ),
         if (state.wakeWordError != null && state.wakeWordEnabled)
           Padding(
             padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
-            child: Text(
-              state.wakeWordError!,
-              style: TextStyle(fontSize: 13, color: Theme.of(context).colorScheme.error),
+            child: Row(
+              children: [
+                Icon(Icons.warning_amber_rounded, size: 16, color: Theme.of(context).colorScheme.error),
+                const SizedBox(width: 6),
+                Expanded(
+                  child: Text(
+                    state.wakeWordError!,
+                    style: TextStyle(fontSize: 13, color: Theme.of(context).colorScheme.error),
+                  ),
+                ),
+              ],
             ),
           ),
         if (!kIsWeb)
           ListTile(
-            title: const Text('Calibrate wake phrase'),
-            subtitle: const Text('Personalise "Hi Pal", "HiPal" & "AiPal" to your voice'),
             leading: const Icon(Icons.tune_outlined),
+            title: const Text('Calibrate wake phrase'),
+            subtitle: const Text(
+              'Personalise "Hi Pal", "HiPal" & "AiPal" to your voice',
+              style: TextStyle(color: Colors.white60),
+            ),
             trailing: const Icon(Icons.chevron_right),
             onTap: () => Navigator.push(
               context,
               MaterialPageRoute(builder: (_) => const WakeEnrollmentScreen()),
             ),
           ),
-        SwitchListTile(
-          title: const Text('Check-in enabled'),
-          value: p?['checkin_enabled'] as bool? ?? true,
-          onChanged: (v) => state.updateProfile({'checkin_enabled': v}),
-        ),
-        const Divider(),
-        const ListTile(
-          title: Text('Test session logging'),
-          subtitle: Text('Record events while you test each build. Export and share for debugging.'),
-        ),
-        if (_loaded)
-          SwitchListTile(
-            title: const Text('Record test sessions'),
-            value: _recordSessions,
-            onChanged: (v) async {
-              setState(() => _recordSessions = v);
-              await state.setSessionRecordingEnabled(v);
-            },
-          ),
-        Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 16),
-          child: TextField(
-            controller: _phaseController,
-            decoration: const InputDecoration(
-              labelText: 'Phase tag (optional)',
-              hintText: 'e.g. build-39-voice',
-              border: OutlineInputBorder(),
-            ),
-            onSubmitted: (v) => state.setSessionPhaseTag(v),
-            onEditingComplete: () => state.setSessionPhaseTag(_phaseController.text),
-          ),
-        ),
+        const Divider(height: 1),
+
+        // ── VOICE ─────────────────────────────────────────────────────
+        _sectionHeader('Voice'),
         ListTile(
-          title: const Text('Export last session'),
+          leading: const Icon(Icons.record_voice_over_outlined),
+          title: const Text('Companion voice'),
           subtitle: Text(
-            state.lastExportSessionId != null
-                ? 'Session ${state.lastExportSessionId}'
-                : 'No session yet',
+            _voiceCatalogue
+                .firstWhere(
+                  (v) => v['id'] == state.companionVoiceId,
+                  orElse: () => _voiceCatalogue.first,
+                )['name'] as String,
+            style: const TextStyle(color: Colors.white60),
           ),
-          trailing: const Icon(Icons.copy),
-          onTap: () => _exportSession(context),
+          trailing: const Icon(Icons.chevron_right),
+          onTap: () => _openVoicePicker(context, state),
         ),
-        const Divider(),
+        const Divider(height: 1),
+
+        // ── CALENDAR & LOCATION ───────────────────────────────────────
+        _sectionHeader('Calendar & location'),
         ListTile(
-          title: const Text('Reschedule morning brief'),
-          onTap: () => NotificationService.instance.scheduleMorningBrief(hour: 8, minute: 0),
-        ),
-        ListTile(
-          title: const Text('Sync phone calendar for today'),
+          leading: const Icon(Icons.calendar_today_outlined),
+          title: const Text('Sync phone calendar'),
           subtitle: const Text(
-            'Read-only from your phone calendar apps. Also syncs when you open Today.',
+            'Read-only from your phone calendar apps',
+            style: TextStyle(color: Colors.white60),
           ),
+          trailing: const Icon(Icons.sync),
           onTap: () async {
             final events = await CalendarService().fetchTodayEvents();
             if (!context.mounted) return;
@@ -360,20 +394,37 @@ class _SettingsScreenState extends State<SettingsScreen> {
           },
         ),
         ListTile(
-          title: const Text('Companion voice'),
-          subtitle: Text(_voiceCatalogue
-              .firstWhere(
-                (v) => v['id'] == state.companionVoiceId,
-                orElse: () => _voiceCatalogue.first,
-              )['name'] as String),
-          leading: const Icon(Icons.record_voice_over_outlined),
-          trailing: const Icon(Icons.chevron_right),
-          onTap: () => _openVoicePicker(context, state),
+          leading: const Icon(Icons.location_on_outlined),
+          title: const Text('Location'),
+          subtitle: Text(
+            locationText,
+            style: const TextStyle(color: Colors.white60),
+          ),
         ),
-        const Divider(),
+        const Divider(height: 1),
+
+        // ── NOTIFICATIONS ─────────────────────────────────────────────
+        _sectionHeader('Notifications'),
+        ListTile(
+          leading: const Icon(Icons.alarm_outlined),
+          title: const Text('Reschedule morning brief'),
+          subtitle: const Text(
+            'Reset daily 8am reminder',
+            style: TextStyle(color: Colors.white60),
+          ),
+          onTap: () => NotificationService.instance.scheduleMorningBrief(hour: 8, minute: 0),
+        ),
+        const Divider(height: 1),
+
+        // ── EMAIL SUMMARY ─────────────────────────────────────────────
+        _sectionHeader('Email summary'),
         const ListTile(
+          leading: Icon(Icons.email_outlined),
           title: Text('Weekly summary email'),
-          subtitle: Text('Preview and send your activity summary.'),
+          subtitle: Text(
+            'Preview and send your weekly activity report',
+            style: TextStyle(color: Colors.white60),
+          ),
         ),
         Padding(
           padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
@@ -383,33 +434,93 @@ class _SettingsScreenState extends State<SettingsScreen> {
             onPressed: () => _previewAndSendWeeklySummary(context, state),
           ),
         ),
-        const Divider(),
+        const Divider(height: 1),
+
+        // ── MUSIC ─────────────────────────────────────────────────────
+        _sectionHeader('Music'),
         ListTile(
+          leading: const Icon(Icons.music_note_outlined),
           title: const Text('Open Spotify'),
-          subtitle: const Text('AiPal controls music using Android deep links'),
+          subtitle: const Text(
+            'AiPal controls music using Android deep links',
+            style: TextStyle(color: Colors.white60),
+          ),
+          trailing: const Icon(Icons.open_in_new, size: 18),
           onTap: () async {
             final uri = Uri.parse('spotify:');
             await launchUrl(uri);
           },
         ),
-        const Divider(),
+        const Divider(height: 1),
+
+        // ── DEBUG ─────────────────────────────────────────────────────
+        _sectionHeader('Debug'),
+        const ListTile(
+          leading: Icon(Icons.bug_report_outlined),
+          title: Text('Test session logging'),
+          subtitle: Text(
+            'Record events while you test each build',
+            style: TextStyle(color: Colors.white60),
+          ),
+        ),
+        if (_loaded)
+          SwitchListTile(
+            secondary: const Icon(Icons.fiber_manual_record_outlined),
+            title: const Text('Record test sessions'),
+            value: _recordSessions,
+            onChanged: (v) async {
+              setState(() => _recordSessions = v);
+              await state.setSessionRecordingEnabled(v);
+            },
+          ),
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+          child: TextField(
+            controller: _phaseController,
+            decoration: const InputDecoration(
+              labelText: 'Phase tag (optional)',
+              hintText: 'e.g. build-39-voice',
+              border: OutlineInputBorder(),
+            ),
+            onSubmitted: (v) => state.setSessionPhaseTag(v),
+            onEditingComplete: () => state.setSessionPhaseTag(_phaseController.text),
+          ),
+        ),
+        ListTile(
+          leading: const Icon(Icons.copy_outlined),
+          title: const Text('Export last session'),
+          subtitle: Text(
+            state.lastExportSessionId != null
+                ? 'Session ${state.lastExportSessionId}'
+                : 'No session yet',
+            style: const TextStyle(color: Colors.white60),
+          ),
+          trailing: const Icon(Icons.copy),
+          onTap: () => _exportSession(context),
+        ),
+        const Divider(height: 1),
+
+        // ── ABOUT ─────────────────────────────────────────────────────
+        _sectionHeader('About'),
         FutureBuilder<PackageInfo>(
           future: PackageInfo.fromPlatform(),
           builder: (context, snapshot) {
             final info = snapshot.data;
             return ListTile(
+              leading: const Icon(Icons.info_outline),
               title: const Text('App version'),
               subtitle: Text(
                 info != null ? '${info.version} (build ${info.buildNumber})' : 'Loading…',
+                style: const TextStyle(color: Colors.white60),
               ),
             );
           },
         ),
         const Padding(
-          padding: EdgeInsets.all(8),
+          padding: EdgeInsets.fromLTRB(16, 8, 16, 24),
           child: Text(
             'AiPal is a supportive companion, not medical advice.',
-            style: TextStyle(fontSize: 12),
+            style: TextStyle(fontSize: 12, color: Colors.white54),
           ),
         ),
       ],

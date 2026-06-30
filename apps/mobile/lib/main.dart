@@ -13,9 +13,24 @@ import 'services/wake_background_service.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+
+  // Global error handlers — prevent silent crashes from killing the process.
+  FlutterError.onError = (FlutterErrorDetails details) {
+    FlutterError.presentError(details);
+    debugPrint('[AiPal] FlutterError: ${details.exceptionAsString()}');
+  };
+  PlatformDispatcher.instance.onError = (error, stack) {
+    debugPrint('[AiPal] PlatformDispatcher error: $error\n$stack');
+    return true; // handled — do not propagate
+  };
+
   if (!kIsWeb && defaultTargetPlatform == TargetPlatform.android) {
     FlutterForegroundTask.initCommunicationPort();
-    await WakeBackgroundService.init();
+    try {
+      await WakeBackgroundService.init();
+    } catch (e) {
+      debugPrint('[AiPal] WakeBackgroundService.init failed: $e');
+    }
   }
   final appState = AppState();
   try {

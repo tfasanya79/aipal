@@ -129,6 +129,9 @@ def format_system_context(
     extracted: dict,
     history: list[dict[str, str]],
     auto_confirmed: bool = False,
+    city: str | None = None,
+    country_code: str | None = None,
+    audio_channel: bool = False,
 ) -> str:
     if local_now is not None:
         period = _time_period(local_now.hour)
@@ -139,6 +142,9 @@ def format_system_context(
     else:
         system_ctx = ""
     system_ctx += f"\nUser wake name: {wake}. About: {about_me or ''}"
+    if city:
+        loc_str = f"{city}, {country_code}" if country_code else city
+        system_ctx += f"\nUser location: {loc_str}."
     open_count = today_snap.summary.open
     if today_snap.up_next:
         system_ctx += (
@@ -154,6 +160,12 @@ def format_system_context(
         system_ctx += f"\nMemories:\n{companion.mem_block}"
     if companion.tone_instruction:
         system_ctx += f"\n{companion.tone_instruction}"
+    if audio_channel:
+        system_ctx += (
+            "\nVoice mode: you are in a voice conversation. "
+            "Keep replies to 1–2 natural sentences unless the user asks for detail. "
+            "Be warm, direct, and conversational. No bullet points or lists."
+        )
     if tool_actions:
         system_ctx += f"\nTool results: {'; '.join(tool_actions)}"
     if auto_confirmed or any(a.startswith("Confirmed plan:") for a in tool_actions):

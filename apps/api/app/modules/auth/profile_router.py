@@ -23,6 +23,8 @@ def user_to_profile(user: User) -> ProfileResponse:
         evening_recap_at=time_to_str(user.evening_recap_at),
         checkin_enabled=user.checkin_enabled,
         tts_voice=getattr(user, "tts_voice", "aria") or "aria",
+        city=getattr(user, "city", None),
+        country_code=getattr(user, "country_code", None),
     )
 
 
@@ -53,6 +55,10 @@ async def update_profile(
         user.checkin_enabled = body.checkin_enabled
     if body.tts_voice is not None:
         user.tts_voice = body.tts_voice
+    if body.city is not None:
+        user.city = body.city
+    if body.country_code is not None:
+        user.country_code = body.country_code
     await db.commit()
     await db.refresh(user)
     return user_to_profile(user)

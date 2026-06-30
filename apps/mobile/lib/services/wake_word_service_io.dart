@@ -7,30 +7,31 @@ class WakeWordService {
   WakeWordService({
     required this.onWake,
     this.shouldSuppress,
+    this.calibratedThreshold,
   });
 
   final VoidCallback onWake;
   final bool Function()? shouldSuppress;
+  final double? calibratedThreshold;
 
   WakeWordEngine? _engine;
 
   bool get isListening => _engine?.isListening ?? false;
   String get phrase => WakeWordEngine.wakePhrase;
 
-  Future<bool> ensureMicPermission() async {
+  WakeWordEngine _getEngine() {
     _engine ??= WakeWordEngine(onWake: onWake, shouldSuppress: shouldSuppress);
-    return _engine!.ensureMicPermission();
+    if (calibratedThreshold != null) {
+      _engine!.setCalibrationThreshold(calibratedThreshold!);
+    }
+    return _engine!;
   }
 
-  Future<bool> init() async {
-    _engine ??= WakeWordEngine(onWake: onWake, shouldSuppress: shouldSuppress);
-    return _engine!.init();
-  }
+  Future<bool> ensureMicPermission() async => _getEngine().ensureMicPermission();
 
-  Future<void> start() async {
-    _engine ??= WakeWordEngine(onWake: onWake, shouldSuppress: shouldSuppress);
-    await _engine!.start();
-  }
+  Future<bool> init() async => _getEngine().init();
+
+  Future<void> start() async => _getEngine().start();
 
   Future<void> stop() async {
     await _engine?.stop();

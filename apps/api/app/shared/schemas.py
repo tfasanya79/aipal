@@ -35,6 +35,8 @@ class ProfileResponse(BaseModel):
     evening_recap_at: str | None = None
     checkin_enabled: bool = True
     tts_voice: str = "aria"
+    city: str | None = None
+    country_code: str | None = None
 
 
 class ProfileUpdate(BaseModel):
@@ -46,6 +48,8 @@ class ProfileUpdate(BaseModel):
     evening_recap_at: str | None = None
     checkin_enabled: bool | None = None
     tts_voice: str | None = None
+    city: str | None = None
+    country_code: str | None = None
 
 
 class VoiceCatalogueItem(BaseModel):

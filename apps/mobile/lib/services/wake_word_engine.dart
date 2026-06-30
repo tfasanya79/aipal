@@ -18,9 +18,8 @@ class WakeWordEngine {
 
   static const wakePhrase = 'Hi Pal';
   static const pollMs = 100;
-  static const activationThreshold = 0.28;
-
-  /// Last init failure message (for FGS → main isolate reporting).
+  static const activationThreshold = 0.05; // lowered from 0.28; model trained on TTS, real speech scores much lower
+  static const _defaultWarmupMs = 1500; // reduced from 3000
   static String? lastInitError;
 
   /// Optional hook for agent debug logging (main isolate only).
@@ -40,9 +39,14 @@ class WakeWordEngine {
   int _pollCount = 0;
   double _maxProbSinceSample = 0;
   DateTime? _micStartedAt;
-  static const _warmupMs = 3000;
+  double _effectiveThreshold = activationThreshold;
 
   bool get isListening => _listening;
+
+  /// Set a per-user calibrated threshold (from wake enrollment prefs).
+  void setCalibrationThreshold(double threshold) {
+    _effectiveThreshold = threshold.clamp(0.005, 0.5);
+  }
 
   void setShouldSuppress(bool Function()? fn) => _shouldSuppress = fn;
 
@@ -130,7 +134,7 @@ class WakeWordEngine {
     _pollCount = 0;
     _maxProbSinceSample = 0;
     _micStartedAt = DateTime.now();
-    agentDebug?.call('H3', 'mic_stream_started', {'listening': true, 'warmupMs': _warmupMs});
+    agentDebug?.call('H3', 'mic_stream_started', {'listening': true, 'warmupMs': _defaultWarmupMs, 'threshold': _effectiveThreshold});
   }
 
   Future<void> stop() async {
@@ -167,7 +171,7 @@ class WakeWordEngine {
   bool _inWarmup() {
     final started = _micStartedAt;
     if (started == null) return false;
-    return DateTime.now().difference(started).inMilliseconds < _warmupMs;
+    return DateTime.now().difference(started).inMilliseconds < _defaultWarmupMs;
   }
 
   void _pollActivation() {
@@ -180,14 +184,14 @@ class WakeWordEngine {
       agentDebug?.call('H3', 'wake_prob_sample', {
         'prob': prob,
         'maxProb': _maxProbSinceSample,
-        'threshold': activationThreshold,
+        'threshold': _effectiveThreshold,
         'activated': OpenWakeWord.isActivated(),
       });
       _maxProbSinceSample = prob;
     }
-    if (OpenWakeWord.isActivated() || prob >= activationThreshold) {
+    if (OpenWakeWord.isActivated() || prob >= _effectiveThreshold) {
       _cooldown = true;
-      agentDebug?.call('H3', 'wake_threshold_hit', {'prob': prob});
+      agentDebug?.call('H3', 'wake_threshold_hit', {'prob': prob, 'threshold': _effectiveThreshold});
       onWake();
       Future.delayed(const Duration(seconds: 2), () => _cooldown = false);
     }

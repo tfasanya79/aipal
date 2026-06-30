@@ -13,7 +13,7 @@ class LiveVoiceLoop {
     this.onSpeechStart,
     this.shouldSuppress,
     this.isSpeakingForVad,
-    this.silenceMs = 800,
+    this.silenceMs = 500,
     this.maxSegmentMs = 10000,
     this.minVoicedMs = 450,
     this.minUploadBytes = 1024,

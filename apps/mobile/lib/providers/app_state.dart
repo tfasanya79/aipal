@@ -8,6 +8,7 @@ import 'package:flutter_foreground_task/flutter_foreground_task.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
 import '../services/device_timezone.dart';
+import '../services/device_location.dart';
 import '../services/calendar_service.dart';
 import '../services/api_client.dart';
 import '../services/live_session.dart';
@@ -154,6 +155,7 @@ class AppState extends ChangeNotifier {
         try {
           profile = await api.getProfile();
           await _syncDeviceTimezone();
+          unawaited(_syncDeviceLocation());
           await _loadCheckinBanner();
           await refreshTodayView();
           _startDateCheckTimer();
@@ -182,7 +184,14 @@ class AppState extends ChangeNotifier {
 
   Future<void> _loadWakePrefs() async {
     wakeWordEnabled = await WakeWordPrefs.isEnabled();
+    final calibrated = await WakeWordPrefs.getCalibratedThreshold();
+    if (calibrated != null && _wakeWord != null) {
+      // Will be applied when engine is next started
+    }
+    _calibratedWakeThreshold = calibrated;
   }
+
+  double? _calibratedWakeThreshold;
 
   Future<void> _syncDeviceTimezone() async {
     try {
@@ -190,6 +199,17 @@ class AppState extends ChangeNotifier {
       final profileTz = profile?['timezone'] as String?;
       if (deviceTz != profileTz) {
         profile = await api.updateProfile({'timezone': deviceTz});
+      }
+    } catch (_) {}
+  }
+
+  Future<void> _syncDeviceLocation() async {
+    try {
+      final loc = await DeviceLocation.getCityAndCountry();
+      if (loc == null) return;
+      final profileCity = profile?['city'] as String?;
+      if (loc.city != profileCity) {
+        profile = await api.updateProfile({'city': loc.city, 'country_code': loc.countryCode});
       }
     } catch (_) {}
   }
@@ -311,6 +331,7 @@ class AppState extends ChangeNotifier {
     _wakeWord ??= WakeWordService(
       onWake: () => unawaited(_onWakeWordDetected()),
       shouldSuppress: _blocksWakeFire,
+      calibratedThreshold: _calibratedWakeThreshold,
     );
     if (!await _wakeWord!.init()) {
       wakeWordListening = false;
@@ -322,7 +343,7 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
-  Future<void> _syncAndroidBackgroundWake() async {
+
     if (!wakeWordEnabled) {
       _activeWakeRoute = null;
       await _stopWakeListener();
@@ -382,6 +403,7 @@ class AppState extends ChangeNotifier {
       _wakeWord ??= WakeWordService(
         onWake: () => unawaited(_onWakeWordDetected()),
         shouldSuppress: _blocksWakeFire,
+        calibratedThreshold: _calibratedWakeThreshold,
       );
       if (!await _wakeWord!.init()) {
         _activeWakeRoute = null;
