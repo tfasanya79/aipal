@@ -1,7 +1,7 @@
 # AiPal — product status (living doc)
 
 **Canonical current-state reference.**  
-**App version:** `2.6.11+100` (Play Internal build, 2026-06-29)  
+**App version:** `2.6.11+100` (Play Internal build, 2026-06-29) — **backend updated 2026-06-30**  
 **Stack:** Flutter mobile/web + FastAPI v2 — not Capacitor/React Native.
 
 ---
@@ -36,24 +36,29 @@
 - **Apple Sign-In** — `POST /auth/apple` (Apple JWT verification); onboarding screen updated
 - **Spotify Android deep-link control** — Companion emits on-device music commands; mobile launches Spotify app via `spotify:` URIs (no Spotify Web API dependency)
 - **Music intent** — plan extractor recognises play/pause/skip/volume intents; routed to Android deep-link command payload
-- **Voice baseline code fixes** — gate 4 (ambient TV/YouTube patterns extended); gates 1/3/6 confirmed implemented
-- **Voice gate smoke script** — `scripts/voice-gate-smoke.sh`
+- **Voice gate debounce** — 300ms time-based debounce on `toggleLive()` (gate 6 hardening)
+- **Companion Voice Selection (Phase D-voice)** — 6 curated `edge-tts` voices (Aria/Jenny/Emma/Andrew/Brian/Sonia); `GET /voice/catalogue`; `POST /voice/preview`; `tts_voice` preference stored per-user; Settings picker sheet with preview button; free for all users
+- **Weekly email UI** — Settings "Preview & Send" button; calls `GET /daily/weekly-summary` + `POST /daily/weekly-summary/send` (Resend provider active)
+- **Overdue lane in Today screen** — muted-red "Overdue" lane above Now; "Defer all overdue" action
+- **LLM streaming for audio turns** — audio turn LLM call now uses `llm_stream`; `_llm_reply_with_early_tts` helper for future first-sentence TTS parallelism
+- **Wake enrollment screen** — guided in-app 5-utterance enrollment per phrase (Hi Pal / HiPal / AiPal); threshold calibration; `WakeWordPrefs.markEnrollmentDone()`; Settings "Calibrate wake phrase" tile
 
 ---
 
 ## Phase D backlog (MVP_EXECUTION_PLAN.md)
 
 - [x] D0-A — LLM latency reduction (streaming, max_tokens 180 for voice)
-- [x] D0-B — Date staleness bug (client refresh + server overdue lane)
+- [x] D0-B — Date staleness bug (client refresh + server overdue lane + Today UI overdue lane)
 - [x] D0-C — Auth gateway: Google + Apple Sign-In
-- [x] D1 — Voice baseline code fixes (gate 4; 1/3/6 confirmed); smoke script
-- [ ] D2 — Wake phrase model v0.2 (HiPal/AiPal variants) — *requires device tester recordings*
+- [x] D1 — Voice baseline code fixes (gate 4; 1/3/6/6-debounce confirmed); smoke script
+- [ ] D2 — Wake phrase model v0.2 (in-app enrollment screen shipped; model retrain needs enrollment data)
 - [x] D3 — Today intelligence uplift (multi-task, relative times, music intent in extractor)
 - [x] D4 — Spotify Android deep-link control (policy-safe MVP path)
-- [ ] D5-A — Weekly email summary (manual preview + send) — *in progress*
+- [x] D5-A — Weekly email summary (manual preview + send UI shipped; Resend active)
 - [ ] D5-B — Weekly email scheduled automation
-- [ ] D6 — Subscriber gateway + tier enforcement
-- [ ] D7 — Continuous doc sync
+- [x] D-voice — Companion voice selection (6 voices, free for all users; Settings picker)
+- [ ] D6 — Subscriber gateway + tier enforcement (deprioritised — app is free)
+- [x] D7 — Continuous doc sync
 
 ---
 
