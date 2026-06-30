@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:typed_data';
 
 import 'package:audioplayers/audioplayers.dart';
 import 'package:flutter/foundation.dart';
@@ -96,7 +97,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     try {
       final bytes = await state.api.voicePreview(voiceId);
       await _previewPlayer.stop();
-      await _previewPlayer.play(BytesSource(bytes));
+      await _previewPlayer.play(BytesSource(Uint8List.fromList(bytes)));
     } catch (_) {
       // ignore preview errors silently
     } finally {
