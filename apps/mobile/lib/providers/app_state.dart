@@ -343,7 +343,7 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
-
+  Future<void> _syncAndroidBackgroundWake() async {
     if (!wakeWordEnabled) {
       _activeWakeRoute = null;
       await _stopWakeListener();
