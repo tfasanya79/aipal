@@ -338,6 +338,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
             trailing: const Icon(Icons.chevron_right),
             onTap: () async {
               await state.pauseWakeForCalibration();
+              if (!context.mounted) return;
               bool resumed = false;
               try {
                 final changed = await Navigator.push<bool>(
