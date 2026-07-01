@@ -1,7 +1,7 @@
 # AiPal — product status (living doc)
 
 **Canonical current-state reference.**  
-**App version:** `2.6.11+100` (Play Internal build, 2026-06-29) — **backend updated 2026-06-30**  
+**App version:** `2.6.13+102` (Play Internal build, 2026-07-01)  
 **Stack:** Flutter mobile/web + FastAPI v2 — not Capacitor/React Native.
 
 ---
@@ -42,6 +42,9 @@
 - **Overdue lane in Today screen** — muted-red "Overdue" lane above Now; "Defer all overdue" action
 - **LLM streaming for audio turns** — audio turn LLM call now uses `llm_stream`; `_llm_reply_with_early_tts` helper for future first-sentence TTS parallelism
 - **Wake enrollment screen** — guided in-app 5-utterance enrollment per phrase (Hi Pal / HiPal / AiPal); threshold calibration; `WakeWordPrefs.markEnrollmentDone()`; Settings "Calibrate wake phrase" tile
+- **Wake calibration v2** — enrollment now scores recorded samples with OpenWakeWord, saves calibrated threshold (`wake_threshold_calibrated`), and refreshes wake listener immediately after calibration
+- **Wake startup recovery** — background wake route now has explicit startup timeout + actionable permission error if listener never becomes ready
+- **Calendar/location sync observability** — Settings now shows sync outcome status and offers explicit retry actions for calendar and location
 
 ---
 
@@ -59,6 +62,15 @@
 - [x] D-voice — Companion voice selection (6 voices, free for all users; Settings picker)
 - [ ] D6 — Subscriber gateway + tier enforcement (deprioritised — app is free)
 - [x] D7 — Continuous doc sync
+
+---
+
+## Companion persona contract (current direction)
+
+- **Primary style:** Hybrid Pro Companion (warm, concise, task-sharp).
+- **Adaptive layer:** add empathy/motivation when user mood seems low or unusual.
+- **Guardrail:** maintain practical professionalism (clear actions, no over-chatty drift).
+- **Voice default:** 1–2 natural sentences unless user asks for detail.
 
 ---
 

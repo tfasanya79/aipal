@@ -77,7 +77,8 @@ Current model (`hi_pal_v0.1.onnx`) was trained on TTS-only "hi pal" — it misse
 ### What was already shipped (you don't need to do these)
 - ✅ Wake enrollment screen in app (`Settings → Calibrate wake phrase`)
 - ✅ Guided 5-utterance recording per phrase (Hi Pal / HiPal / AiPal)
-- ✅ Per-user threshold calibration saved to device prefs
+- ✅ Per-user threshold calibration scored from your recordings and saved to device prefs (`wake_threshold_calibrated`)
+- ✅ Wake listener auto-refresh after calibration (no app restart needed)
 
 ### Steps for you to do
 
@@ -86,7 +87,8 @@ Current model (`hi_pal_v0.1.onnx`) was trained on TTS-only "hi pal" — it misse
 2. Open **Settings → Calibrate wake phrase**.
 3. Follow the on-screen prompts — say each phrase 5 times in a quiet room.
 4. The screen will show: "✓ Hi Pal recorded" → "✓ HiPal recorded" → "✓ AiPal recorded" → "All done!"
-5. Enable "Listen for Hi Pal" (toggle in Settings) and test all three phrases.
+5. Confirm completion screen shows a saved threshold value (example: `0.0123`).
+6. Enable "Listen for Hi Pal" (toggle in Settings) and test all three phrases.
 
 **Step 4-B: Collect evidence to return to Copilot**
 

@@ -1,15 +1,15 @@
 import 'dart:async';
+import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
+import 'package:open_wake_word/open_wake_word.dart';
+import 'package:path_provider/path_provider.dart';
 import 'package:record/record.dart';
 
 import '../services/wake_word_prefs.dart';
 
-/// Guided in-app wake phrase enrollment.
-///
-/// Records 5 utterances for each of the target phrases and stores a calibrated
-/// activation threshold in [WakeWordPrefs].  The user never needs to send audio
-/// to a server — calibration is entirely device-local.
+/// Guided in-app wake phrase enrollment and on-device threshold calibration.
 class WakeEnrollmentScreen extends StatefulWidget {
   const WakeEnrollmentScreen({super.key});
 
@@ -32,14 +32,110 @@ class _WakeEnrollmentScreenState extends State<WakeEnrollmentScreen> {
   // Durations per attempt
   static const _recordDuration = Duration(seconds: 3);
   static const _pauseBetween = Duration(milliseconds: 800);
+  static const _fallbackThreshold = 0.05;
+
+  bool _owwReady = false;
+  double _maxCalibrationScore = 0;
+  int _scoredSamples = 0;
+  double? _calibratedThreshold;
 
   String get _currentPhrase => _phrases[_phraseIndex];
+
+  @override
+  void initState() {
+    super.initState();
+    unawaited(_initModel());
+  }
 
   @override
   void dispose() {
     _recordTimer?.cancel();
     _recorder.dispose();
+    if (_owwReady) {
+      try {
+        OpenWakeWord.destroy();
+      } catch (_) {}
+    }
     super.dispose();
+  }
+
+  Future<void> _initModel() async {
+    try {
+      _owwReady = await OpenWakeWord.init(
+        melModelAssetPath: 'assets/models/melspectrogram.onnx',
+        embModelAssetPath: 'assets/models/embedding_model.onnx',
+        wwModelAssetPaths: const ['assets/models/hi_pal_v0.1.onnx'],
+      );
+      if (!_owwReady && mounted) {
+        setState(() {
+          _status = 'Calibration model did not load. We will use default wake sensitivity.';
+        });
+      }
+    } catch (_) {
+      _owwReady = false;
+      if (mounted) {
+        setState(() {
+          _status = 'Could not load calibration model. Default wake sensitivity will be used.';
+        });
+      }
+    }
+  }
+
+  Future<bool> _resetModel() async {
+    try {
+      if (_owwReady) OpenWakeWord.destroy();
+    } catch (_) {}
+    return _initModelForScoring();
+  }
+
+  Future<bool> _initModelForScoring() async {
+    try {
+      _owwReady = await OpenWakeWord.init(
+        melModelAssetPath: 'assets/models/melspectrogram.onnx',
+        embModelAssetPath: 'assets/models/embedding_model.onnx',
+        wwModelAssetPaths: const ['assets/models/hi_pal_v0.1.onnx'],
+      );
+      return _owwReady;
+    } catch (_) {
+      _owwReady = false;
+      return false;
+    }
+  }
+
+  Future<double> _scoreRecording(String path) async {
+    if (!await _resetModel()) return 0;
+    final file = File(path);
+    if (!await file.exists()) return 0;
+    final bytes = await file.readAsBytes();
+    final pcm = _decodePcm16Le(bytes);
+    if (pcm.isEmpty) return 0;
+    var maxScore = 0.0;
+    const frame = 1600; // 100ms @16kHz
+    for (var i = 0; i < pcm.length; i += frame) {
+      final end = (i + frame < pcm.length) ? i + frame : pcm.length;
+      OpenWakeWord.processAudio(Int16List.sublistView(pcm, i, end));
+      final score = OpenWakeWord.getProbability();
+      if (score > maxScore) maxScore = score;
+    }
+    return maxScore;
+  }
+
+  Int16List _decodePcm16Le(Uint8List bytes) {
+    var start = 0;
+    if (bytes.length > 44 &&
+        String.fromCharCodes(bytes.sublist(0, 4)) == 'RIFF' &&
+        String.fromCharCodes(bytes.sublist(8, 12)) == 'WAVE') {
+      start = 44;
+    }
+    final sampleCount = (bytes.length - start) ~/ 2;
+    if (sampleCount <= 0) return Int16List(0);
+    final out = Int16List(sampleCount);
+    for (var i = 0; i < sampleCount; i++) {
+      var sample = (bytes[start + i * 2] & 0xff) | ((bytes[start + i * 2 + 1] & 0xff) << 8);
+      if (sample >= 0x8000) sample -= 0x10000;
+      out[i] = sample;
+    }
+    return out;
   }
 
   Future<void> _startSample() async {
@@ -49,6 +145,10 @@ class _WakeEnrollmentScreenState extends State<WakeEnrollmentScreen> {
       setState(() => _status = 'Microphone permission is required.');
       return;
     }
+    final dir = await getTemporaryDirectory();
+    final filePath =
+        '${dir.path}/wake-${_phraseIndex + 1}-${_sampleCount + 1}-${DateTime.now().millisecondsSinceEpoch}.wav';
+
     setState(() {
       _recording = true;
       _status = 'Listening… say "$_currentPhrase"';
@@ -56,8 +156,12 @@ class _WakeEnrollmentScreenState extends State<WakeEnrollmentScreen> {
 
     try {
       await _recorder.start(
-        const RecordConfig(encoder: AudioEncoder.pcm16bits, sampleRate: 16000, numChannels: 1),
-        path: '',
+        const RecordConfig(
+          encoder: AudioEncoder.pcm16bits,
+          sampleRate: 16000,
+          numChannels: 1,
+        ),
+        path: filePath,
       );
     } catch (_) {
       setState(() {
@@ -68,7 +172,14 @@ class _WakeEnrollmentScreenState extends State<WakeEnrollmentScreen> {
     }
 
     _recordTimer = Timer(_recordDuration, () async {
-      await _recorder.stop();
+      final finished = await _recorder.stop();
+      final samplePath = finished ?? filePath;
+      final score = await _scoreRecording(samplePath);
+      _scoredSamples += 1;
+      if (score > _maxCalibrationScore) _maxCalibrationScore = score;
+      try {
+        await File(samplePath).delete();
+      } catch (_) {}
       if (!mounted) return;
       setState(() {
         _recording = false;
@@ -103,12 +214,15 @@ class _WakeEnrollmentScreenState extends State<WakeEnrollmentScreen> {
   }
 
   Future<void> _finishEnrollment() async {
-    // Save enrollment completion flag and a slightly lower threshold (user-calibrated).
+    final calibrated = (_maxCalibrationScore > 0 ? _maxCalibrationScore * 0.7 : _fallbackThreshold)
+        .clamp(0.005, 0.5);
+    _calibratedThreshold = calibrated;
+    await WakeWordPrefs.setCalibratedThreshold(calibrated);
     await WakeWordPrefs.markEnrollmentDone();
     if (mounted) {
       setState(() {
         _done = true;
-        _status = 'All done! Your wake phrases are calibrated.';
+        _status = 'All done! Wake threshold saved at ${calibrated.toStringAsFixed(4)}.';
       });
     }
   }
@@ -125,6 +239,7 @@ class _WakeEnrollmentScreenState extends State<WakeEnrollmentScreen> {
   }
 
   Widget _buildDoneView() {
+    final threshold = _calibratedThreshold;
     return Column(
       mainAxisAlignment: MainAxisAlignment.center,
       children: [
@@ -136,14 +251,16 @@ class _WakeEnrollmentScreenState extends State<WakeEnrollmentScreen> {
           textAlign: TextAlign.center,
         ),
         const SizedBox(height: 12),
-        const Text(
-          'AiPal will now respond to "Hi Pal", "HiPal", and "AiPal".',
+        Text(
+          threshold != null
+              ? 'Saved threshold: ${threshold.toStringAsFixed(4)} (from $_scoredSamples samples).'
+              : 'AiPal will now respond to "Hi Pal", "HiPal", and "AiPal".',
           textAlign: TextAlign.center,
-          style: TextStyle(color: Colors.white70),
+          style: const TextStyle(color: Colors.white70),
         ),
         const SizedBox(height: 32),
         FilledButton(
-          onPressed: () => Navigator.pop(context),
+          onPressed: () => Navigator.pop(context, true),
           child: const Text('Back to Settings'),
         ),
       ],
@@ -169,7 +286,6 @@ class _WakeEnrollmentScreenState extends State<WakeEnrollmentScreen> {
         const SizedBox(height: 24),
         LinearProgressIndicator(value: progress, minHeight: 6),
         const SizedBox(height: 24),
-        // Phrase tabs
         Row(
           mainAxisAlignment: MainAxisAlignment.center,
           children: List.generate(_phrases.length, (i) {
@@ -197,7 +313,6 @@ class _WakeEnrollmentScreenState extends State<WakeEnrollmentScreen> {
           }),
         ),
         const SizedBox(height: 32),
-        // Recording indicator
         Center(
           child: AnimatedContainer(
             duration: const Duration(milliseconds: 200),
@@ -226,7 +341,6 @@ class _WakeEnrollmentScreenState extends State<WakeEnrollmentScreen> {
           ),
         ),
         const SizedBox(height: 16),
-        // Sample dots
         Row(
           mainAxisAlignment: MainAxisAlignment.center,
           children: List.generate(_samplesPerPhrase, (i) {
@@ -270,7 +384,7 @@ class _WakeEnrollmentScreenState extends State<WakeEnrollmentScreen> {
         ),
         const SizedBox(height: 12),
         TextButton(
-          onPressed: () => Navigator.pop(context),
+          onPressed: () => Navigator.pop(context, false),
           child: const Text('Skip for now'),
         ),
       ],

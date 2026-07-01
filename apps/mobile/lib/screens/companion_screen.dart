@@ -129,13 +129,27 @@ class _CompanionScreenState extends State<CompanionScreen> {
               else if (state.wakeWordEnabled && !inConvo && live == LiveState.resting)
                 Padding(
                   padding: const EdgeInsets.only(top: 12),
-                  child: Text(
-                    'Hi Pal enabled — starting listener…',
-                    textAlign: TextAlign.center,
-                    style: TextStyle(
-                      fontSize: 13,
-                      color: Colors.white.withValues(alpha: 0.45),
-                    ),
+                  child: Column(
+                    children: [
+                      Text(
+                        'Hi Pal enabled — starting listener…',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(
+                          fontSize: 13,
+                          color: Colors.white.withValues(alpha: 0.45),
+                        ),
+                      ),
+                      const SizedBox(height: 6),
+                      TextButton.icon(
+                        onPressed: () => state.syncWakeListener(),
+                        icon: const Icon(Icons.refresh, size: 16),
+                        label: const Text('Retry listener'),
+                        style: TextButton.styleFrom(
+                          foregroundColor: Theme.of(context).colorScheme.primary,
+                          visualDensity: VisualDensity.compact,
+                        ),
+                      ),
+                    ],
                   ),
                 ),
               if (kIsWeb && state.wakeWordEnabled)

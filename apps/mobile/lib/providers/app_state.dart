@@ -79,6 +79,10 @@ class AppState extends ChangeNotifier {
   String? _lastRouteDebugKey;
   late final SessionLogger _sessionLogger = SessionLogger(() => token != null ? api : null);
   String? _lastExportSessionId;
+  String? lastCalendarSyncStatus;
+  String? lastLocationSyncStatus;
+  DateTime? lastCalendarSyncAt;
+  DateTime? lastLocationSyncAt;
 
   ApiClient get api => ApiClient(token);
 
@@ -155,7 +159,7 @@ class AppState extends ChangeNotifier {
         try {
           profile = await api.getProfile();
           await _syncDeviceTimezone();
-          unawaited(_syncDeviceLocation());
+          unawaited(_syncDeviceLocation(silent: true));
           await _loadCheckinBanner();
           await refreshTodayView();
           _startDateCheckTimer();
@@ -184,14 +188,17 @@ class AppState extends ChangeNotifier {
 
   Future<void> _loadWakePrefs() async {
     wakeWordEnabled = await WakeWordPrefs.isEnabled();
-    final calibrated = await WakeWordPrefs.getCalibratedThreshold();
-    if (calibrated != null && _wakeWord != null) {
-      // Will be applied when engine is next started
-    }
-    _calibratedWakeThreshold = calibrated;
+    _calibratedWakeThreshold = await WakeWordPrefs.getCalibratedThreshold();
   }
 
   double? _calibratedWakeThreshold;
+
+  Future<void> refreshWakeCalibration() async {
+    await _loadWakePrefs();
+    await _stopWakeListener();
+    await syncWakeListener();
+    notifyListeners();
+  }
 
   Future<void> _syncDeviceTimezone() async {
     try {
@@ -203,15 +210,31 @@ class AppState extends ChangeNotifier {
     } catch (_) {}
   }
 
-  Future<void> _syncDeviceLocation() async {
+  Future<void> _syncDeviceLocation({bool silent = false}) async {
     try {
       final loc = await DeviceLocation.getCityAndCountry();
-      if (loc == null) return;
+      if (loc == null) {
+        lastLocationSyncStatus =
+            'Location unavailable (permission denied, service off, or city could not be resolved).';
+        if (!silent) notifyListeners();
+        return;
+      }
       final profileCity = profile?['city'] as String?;
       if (loc.city != profileCity) {
         profile = await api.updateProfile({'city': loc.city, 'country_code': loc.countryCode});
       }
-    } catch (_) {}
+      lastLocationSyncAt = DateTime.now();
+      lastLocationSyncStatus = 'Detected ${loc.city}, ${loc.countryCode}';
+      if (!silent) notifyListeners();
+    } catch (e) {
+      lastLocationSyncStatus = 'Location sync failed: $e';
+      if (!silent) notifyListeners();
+    }
+  }
+
+  Future<void> syncDeviceLocationNow() async {
+    if (token == null || kIsWeb) return;
+    await _syncDeviceLocation();
   }
 
   Future<void> setWakeWordEnabled(bool enabled) async {
@@ -443,6 +466,12 @@ class AppState extends ChangeNotifier {
         wakeWordError = null;
         _wakeEngineReadyCompleter = Completer<void>();
         WakeBackgroundService.ensureListening();
+        final ready = await _awaitWakeEngineReady(timeout: const Duration(seconds: 8));
+        if (!ready) {
+          wakeWordListening = false;
+          wakeWordError =
+              'Wake listener did not start. Check microphone and notification permissions, then retry.';
+        }
       }
     } else {
       wakeWordListening = false;
@@ -576,9 +605,16 @@ class AppState extends ChangeNotifier {
     try {
       final events = await CalendarService().fetchTodayEvents();
       if (events.isNotEmpty) {
-        await api.importCalendar(events);
+        final count = await api.importCalendar(events);
+        lastCalendarSyncAt = DateTime.now();
+        lastCalendarSyncStatus = 'Synced $count event(s)';
+      } else {
+        lastCalendarSyncStatus = 'No events found for today';
       }
-    } catch (_) {}
+    } catch (e) {
+      lastCalendarSyncStatus = 'Calendar sync failed: $e';
+    }
+    notifyListeners();
   }
 
   Future<void> refreshTodayView() async {

@@ -76,6 +76,7 @@ class _AipalAppState extends State<AipalApp> with WidgetsBindingObserver {
     // inactive = still visible (keyboard, system UI); only paused/hidden = background.
     if (state == AppLifecycleState.resumed) {
       unawaited(widget.appState.syncDeviceCalendar());
+      unawaited(widget.appState.syncDeviceLocationNow());
       unawaited(widget.appState.syncWakeListener());
       unawaited(widget.appState.refreshTodayViewIfDateChanged());
     }

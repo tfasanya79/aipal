@@ -11,7 +11,6 @@ import 'package:url_launcher/url_launcher.dart';
 
 import '../providers/app_state.dart';
 import '../screens/wake_enrollment_screen.dart';
-import '../services/calendar_service.dart';
 import '../services/notification_service.dart';
 
 class SettingsScreen extends StatefulWidget {
@@ -341,10 +340,20 @@ class _SettingsScreenState extends State<SettingsScreen> {
               style: TextStyle(color: Colors.white60),
             ),
             trailing: const Icon(Icons.chevron_right),
-            onTap: () => Navigator.push(
-              context,
-              MaterialPageRoute(builder: (_) => const WakeEnrollmentScreen()),
-            ),
+            onTap: () async {
+              final changed = await Navigator.push<bool>(
+                context,
+                MaterialPageRoute(builder: (_) => const WakeEnrollmentScreen()),
+              );
+              if (changed == true) {
+                await state.refreshWakeCalibration();
+                if (context.mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('Wake calibration saved and listener refreshed.')),
+                  );
+                }
+              }
+            },
           ),
         const Divider(height: 1),
 
@@ -371,24 +380,18 @@ class _SettingsScreenState extends State<SettingsScreen> {
         ListTile(
           leading: const Icon(Icons.calendar_today_outlined),
           title: const Text('Sync phone calendar'),
-          subtitle: const Text(
-            'Read-only from your phone calendar apps',
-            style: TextStyle(color: Colors.white60),
+          subtitle: Text(
+            state.lastCalendarSyncStatus == null
+                ? 'Read-only from your phone calendar apps'
+                : 'Read-only from your phone calendar apps\n${state.lastCalendarSyncStatus}',
+            style: const TextStyle(color: Colors.white60),
           ),
           trailing: const Icon(Icons.sync),
           onTap: () async {
-            final events = await CalendarService().fetchTodayEvents();
-            if (!context.mounted) return;
-            if (events.isEmpty) {
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text('No events found for today')),
-              );
-              return;
-            }
-            final n = await context.read<AppState>().api.importCalendar(events);
+            await state.syncDeviceCalendar();
             if (context.mounted) {
               ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(content: Text('Synced $n calendar event(s)')),
+                SnackBar(content: Text(state.lastCalendarSyncStatus ?? 'Calendar sync finished')),
               );
             }
           },
@@ -397,9 +400,20 @@ class _SettingsScreenState extends State<SettingsScreen> {
           leading: const Icon(Icons.location_on_outlined),
           title: const Text('Location'),
           subtitle: Text(
-            locationText,
+            state.lastLocationSyncStatus == null
+                ? locationText
+                : '$locationText\n${state.lastLocationSyncStatus}',
             style: const TextStyle(color: Colors.white60),
           ),
+          trailing: const Icon(Icons.sync),
+          onTap: () async {
+            await state.syncDeviceLocationNow();
+            if (context.mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(content: Text(state.lastLocationSyncStatus ?? 'Location sync finished')),
+              );
+            }
+          },
         ),
         const Divider(height: 1),
 
