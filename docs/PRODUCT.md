@@ -1,7 +1,7 @@
 # AiPal — product status (living doc)
 
 **Canonical current-state reference.**  
-**App version:** `2.6.14+103` (Play Internal build, 2026-07-01)  
+**App version:** `2.6.15+104` (Play Internal build, 2026-07-01)  
 **Stack:** Flutter mobile/web + FastAPI v2 — not Capacitor/React Native.
 
 ---
