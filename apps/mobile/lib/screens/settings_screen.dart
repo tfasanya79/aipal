@@ -1,5 +1,4 @@
 import 'dart:convert';
-import 'dart:typed_data';
 
 import 'package:audioplayers/audioplayers.dart';
 import 'package:flutter/foundation.dart';
@@ -27,7 +26,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
   final _previewPlayer = AudioPlayer();
   bool _previewLoading = false;
   bool _weeklySummarySending = false;
-  Map<String, dynamic>? _weeklySummaryPreview;
 
   static const _voiceCatalogue = [
     {'id': 'aria', 'name': 'Aria (default)', 'gender': 'Female', 'style': 'Warm, clear'},
@@ -173,11 +171,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 
   Future<void> _previewAndSendWeeklySummary(BuildContext context, AppState state) async {
-    setState(() => _weeklySummaryPreview = null);
     try {
       final summary = await state.api.getWeeklySummary();
       if (!context.mounted) return;
-      setState(() => _weeklySummaryPreview = summary);
       final note = summary['companion_note'] as String? ?? '';
       final completed = summary['tasks_completed'] as int? ?? 0;
       final streak = summary['streak_days'] as int? ?? 0;

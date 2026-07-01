@@ -185,7 +185,7 @@ class _WakeEnrollmentScreenState extends State<WakeEnrollmentScreen> {
         _recording = false;
         _sampleCount++;
         if (_sampleCount >= _samplesPerPhrase) {
-          _status = '✓ "${_currentPhrase}" recorded!';
+          _status = '✓ "$_currentPhrase" recorded!';
         } else {
           _status = 'Good! ${_samplesPerPhrase - _sampleCount} more for "$_currentPhrase"';
         }
