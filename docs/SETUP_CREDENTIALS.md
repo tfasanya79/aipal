@@ -79,6 +79,7 @@ Current model (`hi_pal_v0.1.onnx`) was trained on TTS-only "hi pal" — it misse
 - ✅ Guided 5-utterance recording per phrase (Hi Pal / HiPal / AiPal)
 - ✅ Per-user threshold calibration scored from your recordings and saved to device prefs (`wake_threshold_calibrated`)
 - ✅ Wake listener auto-refresh after calibration (no app restart needed)
+- ✅ Crash-stabilization safety gate: wake listening is paused during calibration and resumed afterward (prevents dual wake engine collisions)
 
 ### Steps for you to do
 

@@ -45,6 +45,7 @@
 - **Wake calibration v2** — enrollment now scores recorded samples with OpenWakeWord, saves calibrated threshold (`wake_threshold_calibrated`), and refreshes wake listener immediately after calibration
 - **Wake startup recovery** — background wake route now has explicit startup timeout + actionable permission error if listener never becomes ready
 - **Calendar/location sync observability** — Settings now shows sync outcome status and offers explicit retry actions for calendar and location
+- **Crash stabilization mode (Android)** — wake listener runs FGS-only while wake is enabled, with calibration pause/resume safety gate to prevent dual OpenWakeWord engine races
 
 ---
 

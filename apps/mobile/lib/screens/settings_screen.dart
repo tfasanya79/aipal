@@ -337,16 +337,26 @@ class _SettingsScreenState extends State<SettingsScreen> {
             ),
             trailing: const Icon(Icons.chevron_right),
             onTap: () async {
-              final changed = await Navigator.push<bool>(
-                context,
-                MaterialPageRoute(builder: (_) => const WakeEnrollmentScreen()),
-              );
-              if (changed == true) {
-                await state.refreshWakeCalibration();
-                if (context.mounted) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('Wake calibration saved and listener refreshed.')),
-                  );
+              await state.pauseWakeForCalibration();
+              bool resumed = false;
+              try {
+                final changed = await Navigator.push<bool>(
+                  context,
+                  MaterialPageRoute(builder: (_) => const WakeEnrollmentScreen()),
+                );
+                await state.resumeWakeAfterCalibration();
+                resumed = true;
+                if (changed == true) {
+                  await state.refreshWakeCalibration();
+                  if (context.mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(content: Text('Wake calibration saved and listener refreshed.')),
+                    );
+                  }
+                }
+              } finally {
+                if (!resumed) {
+                  await state.resumeWakeAfterCalibration();
                 }
               }
             },

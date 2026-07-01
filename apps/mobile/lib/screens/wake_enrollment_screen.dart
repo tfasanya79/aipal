@@ -81,29 +81,8 @@ class _WakeEnrollmentScreenState extends State<WakeEnrollmentScreen> {
     }
   }
 
-  Future<bool> _resetModel() async {
-    try {
-      if (_owwReady) OpenWakeWord.destroy();
-    } catch (_) {}
-    return _initModelForScoring();
-  }
-
-  Future<bool> _initModelForScoring() async {
-    try {
-      _owwReady = await OpenWakeWord.init(
-        melModelAssetPath: 'assets/models/melspectrogram.onnx',
-        embModelAssetPath: 'assets/models/embedding_model.onnx',
-        wwModelAssetPaths: const ['assets/models/hi_pal_v0.1.onnx'],
-      );
-      return _owwReady;
-    } catch (_) {
-      _owwReady = false;
-      return false;
-    }
-  }
-
   Future<double> _scoreRecording(String path) async {
-    if (!await _resetModel()) return 0;
+    if (!_owwReady) return 0;
     final file = File(path);
     if (!await file.exists()) return 0;
     final bytes = await file.readAsBytes();

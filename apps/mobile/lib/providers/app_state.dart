@@ -69,6 +69,9 @@ class AppState extends ChangeNotifier {
   bool _appInForeground = true;
   AppLifecycleState _lifecycle = AppLifecycleState.resumed;
   String? _activeWakeRoute;
+  bool _wakePausedForCalibration = false;
+  Timer? _wakeRetryTimer;
+  int _wakeRetryAttempts = 0;
   Timer? _syncWakeDebounce;
   Timer? _foregroundDebounce;
   Timer? _wakeSuppressResyncTimer;
@@ -200,6 +203,24 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
+  Future<void> pauseWakeForCalibration() async {
+    _wakePausedForCalibration = true;
+    _wakeRetryTimer?.cancel();
+    _wakeRetryAttempts = 0;
+    _activeWakeRoute = null;
+    wakeWordListening = false;
+    wakeWordError = null;
+    await _stopAllWakeListening();
+    notifyListeners();
+  }
+
+  Future<void> resumeWakeAfterCalibration() async {
+    _wakePausedForCalibration = false;
+    await _loadWakePrefs();
+    await syncWakeListener();
+    notifyListeners();
+  }
+
   Future<void> _syncDeviceTimezone() async {
     try {
       final deviceTz = await deviceIanaTimezone();
@@ -266,9 +287,9 @@ class AppState extends ChangeNotifier {
     }
   }
 
-  /// Foreground in-process wake while the activity is visible (lifecycle resumed).
+  /// Stabilization mode: Android wake stays on FGS-only to avoid dual-engine races.
   bool _useForegroundWakeRoute() =>
-      _lifecycle == AppLifecycleState.resumed || _appInForeground;
+      !_isAndroid && (_lifecycle == AppLifecycleState.resumed || _appInForeground);
 
   void _armWakeSuppress([Duration? duration]) {
     final d = duration ?? _wakeSuppressDuration;
@@ -335,6 +356,13 @@ class AppState extends ChangeNotifier {
       notifyListeners();
       return;
     }
+    if (_wakePausedForCalibration) {
+      await _stopAllWakeListening();
+      wakeWordListening = false;
+      wakeWordError = null;
+      notifyListeners();
+      return;
+    }
 
     if (_isAndroid) {
       await _syncAndroidBackgroundWake();
@@ -369,6 +397,8 @@ class AppState extends ChangeNotifier {
   Future<void> _syncAndroidBackgroundWake() async {
     if (!wakeWordEnabled) {
       _activeWakeRoute = null;
+      _wakeRetryTimer?.cancel();
+      _wakeRetryAttempts = 0;
       await _stopWakeListener();
       await WakeBackgroundService.stop();
       wakeWordListening = false;
@@ -455,6 +485,8 @@ class AppState extends ChangeNotifier {
     await _stopWakeListener();
     final running = await WakeBackgroundService.ensureRunning();
     if (running) {
+      _wakeRetryTimer?.cancel();
+      _wakeRetryAttempts = 0;
       WakeBackgroundService.setSuppressed(suppressed);
       _agentDebug('H1', 'app_state._syncAndroidBackgroundWake', 'fgs_sync', {
         'suppressed': suppressed,
@@ -476,6 +508,15 @@ class AppState extends ChangeNotifier {
     } else {
       wakeWordListening = false;
       wakeWordError = 'Microphone or notification permission required for Hi Pal.';
+      if (wakeWordEnabled && !_wakePausedForCalibration && _wakeRetryAttempts < 2) {
+        _wakeRetryAttempts += 1;
+        _wakeRetryTimer?.cancel();
+        _wakeRetryTimer = Timer(Duration(seconds: 2 * _wakeRetryAttempts), () {
+          if (wakeWordEnabled && !_wakePausedForCalibration) {
+            unawaited(syncWakeListener());
+          }
+        });
+      }
     }
     notifyListeners();
   }
@@ -521,6 +562,7 @@ class AppState extends ChangeNotifier {
   }
 
   Future<void> handleBackgroundWake() async {
+    if (_wakePausedForCalibration) return;
     if (_inConversation && _voiceLoop?.isActive == true) return;
     if (_inConversation && (_voiceLoop == null || !_voiceLoop!.isActive)) {
       await _endConversation();
@@ -1155,6 +1197,7 @@ class AppState extends ChangeNotifier {
     _dateCheckTimer?.cancel();
     _foregroundDebounce?.cancel();
     _wakeSuppressResyncTimer?.cancel();
+    _wakeRetryTimer?.cancel();
     if (_isAndroid) {
       FlutterForegroundTask.removeTaskDataCallback(_onBackgroundWakeData);
       unawaited(WakeBackgroundService.stop());
