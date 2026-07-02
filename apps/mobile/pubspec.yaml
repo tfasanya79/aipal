@@ -1,7 +1,7 @@
 name: aipal
 description: AiPal voice companion v2
 publish_to: none
-version: 2.6.15+104
+version: 2.6.16+105
 
 environment:
   sdk: ">=3.9.2 <4.0.0"
