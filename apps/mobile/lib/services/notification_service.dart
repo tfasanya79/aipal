@@ -1,6 +1,7 @@
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:timezone/data/latest.dart' as tz;
 import 'package:timezone/timezone.dart' as tz;
+import 'dart:typed_data';
 
 typedef NudgeForegroundCallback = void Function(int taskId, int minutes);
 
@@ -72,7 +73,7 @@ class NotificationService {
     );
   }
 
-  /// Schedule up to [maxNudgesPerDay] task reminders [nudgeLeadMinutes] before due_at.
+  /// Enhanced notification with vibration + sound for task nudges
   Future<void> rescheduleTaskNudges({
     required List<Map<String, dynamic>> tasks,
     required String wakeName,
@@ -102,6 +103,7 @@ class NotificationService {
       final dueRaw = task['due_at'] as String?;
       final id = task['id'] as int?;
       final title = task['title'] as String? ?? 'task';
+      final urgency = task['urgency'] as String? ?? 'medium';
       if (dueRaw == null || id == null) continue;
 
       DateTime dueLocal;
@@ -121,26 +123,44 @@ class NotificationService {
       if (hour >= 22 || hour < 7) continue;
 
       final notifId = _taskNudgeBaseId + (id % 200);
+      
+      // Multi-modal notification based on urgency
+      final isUrgent = urgency == 'high';
+      final vibrationPattern = isUrgent 
+        ? Int64List.fromList([0, 400, 300, 400])  // Long-short-long pattern for urgent
+        : Int64List.fromList([0, 200, 200]);       // Short pattern for normal
+      
       await _plugin.zonedSchedule(
         notifId,
         'AiPal',
         'Hi $wakeName, $nudgeLeadMinutes min to $title',
         fireAt,
         NotificationDetails(
-          android: const AndroidNotificationDetails(
+          android: AndroidNotificationDetails(
             'aipal_nudges',
             'Task reminders',
             channelDescription: 'Reminders before scheduled tasks',
+            vibrationPattern: vibrationPattern,
+            enableVibration: true,
+            importance: isUrgent ? Importance.max : Importance.defaultImportance,
+            priority: isUrgent ? Priority.max : Priority.defaultPriority,
+            styleInformation: BigTextStyleInformation(
+              'Reminder: $title in $nudgeLeadMinutes minutes',
+              contentTitle: title,
+              summaryText: urgency == 'high' ? '🔴 Urgent' : urgency == 'low' ? '🟢 Low Priority' : '🟡 Normal',
+            ),
           ),
           iOS: DarwinNotificationDetails(
             presentAlert: true,
             presentSound: true,
+            presentBadge: true,
             subtitle: title,
+            sound: isUrgent ? 'notification_urgent.mp3' : 'notification_default.mp3',
           ),
         ),
         androidScheduleMode: AndroidScheduleMode.inexactAllowWhileIdle,
         uiLocalNotificationDateInterpretation: UILocalNotificationDateInterpretation.absoluteTime,
-        payload: 'nudge:$id:$nudgeLeadMinutes',
+        payload: 'nudge:$id:$nudgeLeadMinutes:$urgency',
       );
       scheduled++;
     }

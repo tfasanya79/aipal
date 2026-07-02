@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Depends, Query
@@ -29,10 +29,33 @@ async def morning_payload(
     summary = await task_svc.task_summary(db, user.id, local_day, timezone=user.timezone)
     companion_line = await reflection_svc.companion_line_for_day(db, user)
     prompt = "What should we plan for today? Tell me your tasks and I'll track them."
+    
+    # Check for incomplete tasks from yesterday (if-not-done recovery)
+    from datetime import timedelta
+    yesterday = local_day - timedelta(days=1)
+    yesterday_summary = await task_svc.task_summary(db, user.id, yesterday, timezone=user.timezone)
+    
+    # Compute motivation phrase
+    mood_hint = "upbeat" if summary.total > 0 else None
+    motivation = reflection_svc.micro_motivation_phrase(
+        hour=datetime.now(ZoneInfo(user.timezone or "UTC")).hour,
+        completed_today=summary.done,
+        total_today=summary.total,
+        mood_hint=mood_hint,
+    )
+    
+    # If there are incomplete tasks from yesterday, mention them
+    if yesterday_summary.open > 0:
+        open_count = yesterday_summary.open
+        task_word = "task" if open_count == 1 else "tasks"
+        recovery_msg = f"You have {open_count} {task_word} still open from yesterday. Want to reschedule or finish them?"
+        prompt = f"{recovery_msg} {prompt}"
+    
     if companion_line:
         prompt = f"{companion_line} {prompt}"
+    
     return DailyPayload(
-        greeting=f"Good morning, {name}.",
+        greeting=f"Good morning, {name}. {motivation}",
         prompt=prompt,
         summary=summary,
         companion_line=companion_line,
@@ -159,3 +182,62 @@ async def task_nudge(
         )
     text = await nudge_svc.build_nudge_message(db, user, task, minutes)
     return TaskNudgeResponse(text=text, task_id=task_id, minutes=minutes)
+
+
+@router.get("/morning-briefing-spoken", response_model=dict)
+async def morning_briefing_spoken(
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Generate a spoken morning briefing with summary and motivation.
+    
+    This endpoint can be called by the mobile app at user's morning_brief_at time.
+    """
+    from app.modules.voice.tts import synthesize
+    
+    name = user.wake_name or user.display_name or "there"
+    local_day = user_local_today(user.timezone)
+    summary = await task_svc.task_summary(db, user.id, local_day, timezone=user.timezone)
+    
+    # Build briefing text
+    try:
+        tz = ZoneInfo(user.timezone or "UTC")
+        hour = datetime.now(tz).hour
+    except Exception:
+        hour = 9
+    
+    motivation = reflection_svc.micro_motivation_phrase(
+        hour=hour,
+        completed_today=0,
+        total_today=summary.total,
+        mood_hint="upbeat" if summary.total > 0 else None,
+    )
+    
+    briefing = f"Good morning {name}. {motivation}"
+    
+    if summary.total > 0:
+        task_word = "task" if summary.total == 1 else "tasks"
+        briefing += f" You have {summary.total} {task_word} on your plan for today."
+    
+    # Check for incomplete tasks from yesterday
+    from datetime import timedelta
+    yesterday = local_day - timedelta(days=1)
+    yesterday_summary = await task_svc.task_summary(db, user.id, yesterday, timezone=user.timezone)
+    if yesterday_summary.open > 0:
+        task_word = "task" if yesterday_summary.open == 1 else "tasks"
+        briefing += f" You also have {yesterday_summary.open} {task_word} from yesterday."
+    
+    # Synthesize to speech
+    audio_bytes, audio_mime = await synthesize(briefing, user.tts_voice or "aria")
+    
+    return {
+        "text": briefing,
+        "audio_base64": __import__("base64").b64encode(audio_bytes).decode() if audio_bytes else None,
+        "audio_mime": audio_mime or "audio/mpeg",
+        "summary": {
+            "total": summary.total,
+            "done": summary.done,
+            "open": summary.open,
+        }
+    }
+

@@ -11,14 +11,17 @@ class WakeWordEngine {
   WakeWordEngine({
     required this.onWake,
     bool Function()? shouldSuppress,
-  }) : _shouldSuppress = shouldSuppress;
+    String modelVersion = '0.2',
+  }) : _shouldSuppress = shouldSuppress, _modelVersion = modelVersion;
 
   final void Function() onWake;
   bool Function()? _shouldSuppress;
+  String _modelVersion;
 
   static const wakePhrase = 'Hi Pal';
   static const pollMs = 100;
   static const activationThreshold = 0.05; // lowered from 0.28; model trained on TTS, real speech scores much lower
+  static const activationThresholdV2 = 0.04; // slightly tighter for v0.2 model (improved accuracy)
   static const _defaultWarmupMs = 1500; // reduced from 3000
   static String? lastInitError;
 
@@ -77,10 +80,20 @@ class WakeWordEngine {
   Future<bool> _initImpl() async {
     lastInitError = null;
     try {
+      // Select model based on version
+      final modelAssetPath = _modelVersion == '0.2' 
+        ? 'assets/models/hi_pal_v0.2.onnx'
+        : 'assets/models/hi_pal_v0.1.onnx';
+      
+      // Update effective threshold for v0.2 model
+      if (_modelVersion == '0.2' && _effectiveThreshold == activationThreshold) {
+        _effectiveThreshold = activationThresholdV2;
+      }
+      
       final ok = await OpenWakeWord.init(
         melModelAssetPath: 'assets/models/melspectrogram.onnx',
         embModelAssetPath: 'assets/models/embedding_model.onnx',
-        wwModelAssetPaths: const ['assets/models/hi_pal_v0.1.onnx'],
+        wwModelAssetPaths: [modelAssetPath],
       );
       if (!ok) {
         lastInitError = 'OpenWakeWord.init returned false';
@@ -88,12 +101,25 @@ class WakeWordEngine {
         return false;
       }
       _initialized = true;
+      developer.log('WakeWordEngine initialized with model v$_modelVersion', name: 'aipal.wake');
       return true;
     } catch (e, st) {
       lastInitError = e.toString();
       developer.log('WakeWordEngine init failed', name: 'aipal.wake', error: e, stackTrace: st);
       return false;
     }
+  }
+  
+  /// Switch to a different model version (0.1 or 0.2)
+  Future<bool> switchModelVersion(String version) async {
+    if (_listening) {
+      developer.log('Cannot switch model while listening', name: 'aipal.wake');
+      return false;
+    }
+    
+    _modelVersion = version;
+    _initialized = false;
+    return init();
   }
 
   Future<void> start() async {

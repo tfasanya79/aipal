@@ -209,6 +209,28 @@ def _infer_urgency(text: str, vader_hint: str | None = None) -> str:
     return "medium"  # Default
 
 
+def suggest_time_slot(title: str, notes: str | None = None, category: str | None = None) -> str | None:
+    """Suggest a default time slot for a task based on category if no due_at was provided.
+    
+    Returns HH:MM time string or None.
+    """
+    combined = f"{title} {notes or ''}".lower()
+    
+    # Common task-category time suggestions (in local time, HH:MM)
+    if category == "work" or re.search(r"\b(meeting|call|standup|email|report|project)\b", combined):
+        return "09:00"  # Morning for work tasks
+    elif category == "health" or re.search(r"\b(gym|workout|exercise|run|swim|yoga|medication)\b", combined):
+        return "17:00"  # Evening for health/exercise
+    elif category == "home" or re.search(r"\b(laundry|dishes|clean|groceries|errand)\b", combined):
+        return "14:00"  # Afternoon for home tasks
+    elif re.search(r"\b(meal|lunch|dinner|breakfast)\b", combined):
+        return "12:00"  # Noon for meals
+    elif re.search(r"\b(bed|sleep|rest)\b", combined):
+        return "22:00"  # Evening for sleep
+    
+    # Default to mid-morning for unspecified tasks
+    return "10:00"
+
 
 async def extract_plan(
     user_message: str,
@@ -599,6 +621,20 @@ def _normalize_plan(raw: dict, today: date, tz: ZoneInfo, user_message: str = ""
     normalized = _fix_pm_confusion(normalized, user_message, tz)
     normalized = _collapse_single_booking(normalized, user_message, tz)
     normalized = _apply_relative_day(normalized, user_message, today, tz)
+    
+    # Auto-time-blocking: suggest times for tasks without due_at but with estimated_minutes
+    for item in normalized:
+        if item.get("estimated_minutes") and not item.get("due_at"):
+            suggested_time = suggest_time_slot(item.get("title", ""), item.get("notes"), item.get("category"))
+            if suggested_time:
+                try:
+                    t_parts = suggested_time.split(":")
+                    hour = int(t_parts[0])
+                    minute = int(t_parts[1]) if len(t_parts) > 1 else 0
+                    suggested_dt = datetime(today.year, today.month, today.day, hour, minute, tzinfo=tz)
+                    item["due_at"] = suggested_dt.isoformat()
+                except (ValueError, IndexError):
+                    pass
 
     clarifying = raw.get("clarifying_question")
     if not clarifying:
