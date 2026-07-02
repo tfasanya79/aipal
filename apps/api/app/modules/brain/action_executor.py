@@ -285,6 +285,117 @@ async def try_handle_delete(
     )
 
 
+async def try_handle_delete_extraction(
+    db: AsyncSession,
+    user_id: UUID,
+    extracted: dict,
+    today_snap: TodayViewResponse,
+) -> ActionResult | None:
+    """Handle delete_task intent from plan extraction."""
+    if extracted.get("intent") != "delete_task":
+        return None
+    
+    delete_targets = extracted.get("delete_targets") or []
+    if not delete_targets:
+        return ActionResult(
+            handled=True,
+            reply="Which task should I remove?",
+            tool_actions=[],
+        )
+    
+    tool_actions: list[str] = []
+    last_reply: str | None = None
+    
+    for target in delete_targets:
+        if not isinstance(target, dict):
+            continue
+        resolved = task_resolver.resolve_task(
+            match_title=target.get("match_title"),
+            task_id=target.get("task_id"),
+            user_text="",
+            today_snap=today_snap,
+        )
+        if not resolved:
+            continue
+        updated = await task_svc.update_task(db, user_id, resolved.task_id, status="skipped")
+        if not updated:
+            continue
+        tool_msg = f"Deleted task: {updated.title}"
+        last_reply = f"Done — I've removed {updated.title} from Today."
+        tool_actions.append(tool_msg)
+    
+    if tool_actions:
+        return ActionResult(
+            handled=True,
+            reply=last_reply,
+            tool_actions=tool_actions,
+            refresh_today=True,
+        )
+    
+    return ActionResult(
+        handled=True,
+        reply="I couldn't find that task to remove.",
+        tool_actions=[],
+    )
+
+
+async def try_handle_mark_urgent_extraction(
+    db: AsyncSession,
+    user_id: UUID,
+    extracted: dict,
+    today_snap: TodayViewResponse,
+) -> ActionResult | None:
+    """Handle mark_urgent intent from plan extraction."""
+    if extracted.get("intent") != "mark_urgent":
+        return None
+    
+    mark_urgent_targets = extracted.get("mark_urgent_targets") or []
+    if not mark_urgent_targets:
+        return ActionResult(
+            handled=True,
+            reply="Which task should I mark as urgent?",
+            tool_actions=[],
+        )
+    
+    tool_actions: list[str] = []
+    last_reply: str | None = None
+    
+    for target in mark_urgent_targets:
+        if not isinstance(target, dict):
+            continue
+        resolved = task_resolver.resolve_task(
+            match_title=target.get("match_title"),
+            task_id=target.get("task_id"),
+            user_text="",
+            today_snap=today_snap,
+        )
+        if not resolved:
+            continue
+        new_priority = target.get("new_priority", 2)
+        updated = await task_svc.update_task(
+            db, user_id, resolved.task_id, priority=int(new_priority)
+        )
+        if not updated:
+            continue
+        tool_msg = f"Marked urgent: {updated.title}"
+        last_reply = f"Done — I've marked {updated.title} as urgent."
+        tool_actions.append(tool_msg)
+    
+    if tool_actions:
+        return ActionResult(
+            handled=True,
+            reply=last_reply,
+            tool_actions=tool_actions,
+            refresh_today=True,
+        )
+    
+    return ActionResult(
+        handled=True,
+        reply="I couldn't find that task to mark urgent.",
+        tool_actions=[],
+    )
+
+
 async def recover_edit_from_history(
     db: AsyncSession,
     user_id: UUID,

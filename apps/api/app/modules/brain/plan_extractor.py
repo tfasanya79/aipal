@@ -24,10 +24,26 @@ _EDIT_SIGNAL = re.compile(
     r"\b(move|reschedule|change|update|shift|push|make it|switch)\b",
     re.IGNORECASE,
 )
+_DELETE_SIGNAL = re.compile(
+    r"\b(delete|remove|cancel|drop|discard|skip that)\b",
+    re.IGNORECASE,
+)
+_MARK_URGENT_SIGNAL = re.compile(
+    r"\b(mark (?:it|this|that) (?:as )?urgent|make (?:it|this|that) (?:high )?priority|bump (?:it|this|that) up|urgent|asap|critical)\b",
+    re.IGNORECASE,
+)
 _MUSIC_SIGNAL = re.compile(
     r"\b(play|pause|skip|next track|stop music|put on|volume up|volume down|play some|music)\b",
     re.IGNORECASE,
 )
+_URGENCY_HIGH = re.compile(
+    r"\b(urgent|asap|immediately|right now|critical|emergency|must|really need|deadline|before|can't wait)\b",
+    re.IGNORECASE,
+)
+_URGENCY_KEYWORDS = {
+    "high": [r"urgent", r"asap", r"immediately", r"right now", r"critical", r"emergency", r"must", r"really need", r"deadline", r"can't wait"],
+    "low": [r"whenever", r"no rush", r"whenever you get to it", r"someday", r"eventually", r"at some point"],
+}
 
 
 def needs_plan_extraction(text: str) -> bool:
@@ -39,13 +55,15 @@ def needs_plan_extraction(text: str) -> bool:
         _PLAN_SIGNAL.search(t)
         or _COMPLETE_SIGNAL.search(t)
         or _EDIT_SIGNAL.search(t)
+        or _DELETE_SIGNAL.search(t)
+        or _MARK_URGENT_SIGNAL.search(t)
         or _MUSIC_SIGNAL.search(t)
     )
 
 
 EXTRACT_PROMPT = """You extract daily plans and task edits from user messages. Return ONLY valid JSON:
 {
-  "intent": "plan_day|check_in|complete_task|edit_task|music_control|other",
+  "intent": "plan_day|check_in|complete_task|edit_task|mark_urgent|delete_task|music_control|other",
   "proposed_tasks": [
     {
       "title": "1-4 word action label",
@@ -53,6 +71,7 @@ EXTRACT_PROMPT = """You extract daily plans and task edits from user messages. R
       "due_at": "ISO8601 datetime with timezone offset or null",
       "estimated_minutes": null,
       "priority": 1,
+      "urgency": "high|medium|low",
       "category": "work|health|home|personal|null"
     }
   ],
@@ -63,6 +82,19 @@ EXTRACT_PROMPT = """You extract daily plans and task edits from user messages. R
       "new_due_at": "ISO8601 datetime with timezone offset or null",
       "new_estimated_minutes": null,
       "new_title": null
+    }
+  ],
+  "delete_targets": [
+    {
+      "match_title": "task title to delete",
+      "task_id": null
+    }
+  ],
+  "mark_urgent_targets": [
+    {
+      "match_title": "task title to mark urgent",
+      "task_id": null,
+      "new_priority": 2
     }
   ],
   "music_action": null,
@@ -79,9 +111,13 @@ Rules:
 - A single booking request (e.g. "book a 7pm appointment") must produce exactly ONE proposed_task.
 - When user says 7pm in the afternoon/evening, never schedule 7am.
 - For move/reschedule/change requests use intent edit_task with edits (not proposed_tasks). Match existing task by title from conversation.
+- For delete requests (e.g. "delete email", "remove dentist"), set intent to "delete_task" and add to delete_targets with match_title of the task.
+- For mark urgent/priority requests (e.g. "mark this call urgent", "make project plan high priority"), set intent to "mark_urgent" and add to mark_urgent_targets.
 - For meetings/calls/appointments with a time but no stated duration, set estimated_minutes to null and ask one clarifying_question about duration.
 - For simple reminders without a fixed end time, estimated_minutes may be 30.
 - priority: 0=low, 1=medium, 2=high
+- urgency: Infer from user language. "high" if user says urgent/asap/critical/really need/before deadline. "low" if user says whenever/no rush/whenever you get to it. Otherwise "medium".
+- COMPANION EMOJI HINT: For UI display, urgency maps to task title emoji: high → 🔴, medium → 🟡, low → 🟢. Example: "🔴 Call mom" in Today view.
 - Do not invent tasks not mentioned unless user asks to plan their day generally.
 - If only checking in with no tasks, proposed_tasks can be empty and edits empty.
 - MUSIC: If user asks to play/pause/skip/change music (e.g. "play some jazz", "put on focus music", "pause the music", "skip this song"), set intent to "music_control". Set music_action to one of: play|pause|skip|volume_up|volume_down. Set music_query to the genre/playlist name if given.
@@ -152,6 +188,26 @@ def _heuristic_title(phrase: str) -> str:
     if len(words) <= 4:
         return phrase.strip().title()
     return " ".join(words[-4:]).title()
+
+
+def _infer_urgency(text: str, vader_hint: str | None = None) -> str:
+    """Classify task urgency (high/medium/low) from user language + sentiment."""
+    t = (text or "").lower().strip()
+    
+    # High urgency keywords
+    if re.search(r"\b(urgent|asap|immediately|right now|critical|emergency|must|really need|deadline|can't wait|before)\b", t):
+        return "high"
+    
+    # Low urgency keywords
+    if re.search(r"\b(whenever|no rush|eventually|someday|at some point)\b", t):
+        return "low"
+    
+    # Use VADER sentiment as secondary signal (if user stressed, escalate to medium)
+    if vader_hint == "gentle":
+        return "medium"  # User seems stressed; escalate
+    
+    return "medium"  # Default
+
 
 
 async def extract_plan(
@@ -476,6 +532,29 @@ def _regex_edit_fallback(user_message: str, today: date, tz: ZoneInfo) -> dict |
 
 def _normalize_plan(raw: dict, today: date, tz: ZoneInfo, user_message: str = "") -> dict:
     intent = raw.get("intent") or "other"
+    
+    # Handle delete_task intent
+    if intent == "delete_task":
+        delete_targets = raw.get("delete_targets") or []
+        return {
+            "intent": "delete_task",
+            "proposed_tasks": [],
+            "edits": [],
+            "delete_targets": delete_targets[:4],  # Max 4 deletes
+            "clarifying_question": raw.get("clarifying_question"),
+        }
+    
+    # Handle mark_urgent intent
+    if intent == "mark_urgent":
+        mark_urgent_targets = raw.get("mark_urgent_targets") or []
+        return {
+            "intent": "mark_urgent",
+            "proposed_tasks": [],
+            "edits": [],
+            "mark_urgent_targets": mark_urgent_targets[:4],  # Max 4
+            "clarifying_question": raw.get("clarifying_question"),
+        }
+    
     if intent == "edit_task":
         edits = _normalize_edits(raw.get("edits") or [], tz, user_message)
         return {

@@ -2,6 +2,7 @@
 
 **Canonical current-state reference.**  
 **App version:** `2.6.15+104` (Play Internal build, 2026-07-01)  
+**Phase 1 In Progress:** Scheduling Intelligence uplift (urgency classification, smart follow-ups, wellness checks)  
 **Stack:** Flutter mobile/web + FastAPI v2 — not Capacitor/React Native.
 
 ---
@@ -49,7 +50,34 @@
 
 ---
 
-## Phase D backlog (MVP_EXECUTION_PLAN.md)
+## Phase 1: Companion Scheduling Intelligence (In Progress — 2026-07-02)
+
+**Goal:** Elevate scheduling from "helpful" to "anticipatory companion"  
+**Target deploy:** v2.6.16+105 → v2.6.20+109 (2–3 weeks)  
+**Timeline:** Week 1–3 sprint
+
+### Phase 1 Features (Roadmap)
+
+| Feature | Status | Ship Target | Notes |
+|---------|--------|-------------|-------|
+| 1. Context-aware urgency classification | ✅ Code done | v2.6.16+105 | High/medium/low emoji hints (🔴🟡🟢) in task title |
+| 2. Smart follow-up prompts | 🔄 In progress | v2.6.16+105 | "Block focus time?", "Need travel time?", "Prep needed?" post-booking |
+| 3. Automatic time blocking | 🔄 In progress | v2.6.16+105 | LLM suggests slot for duration-less tasks based on calendar |
+| 4. "If-not-done" recovery logic | 🔄 In progress | v2.6.17+106 | Morning briefing shows missed tasks + reschedule options |
+| 5. Expanded voice editing | 🔄 In progress | v2.6.17+106 | "reschedule to tomorrow", "make it 45 min", "mark urgent", "delete that" |
+| 6. Micro-motivation nudges | ✅ Code done | v2.6.18+107 | Morning/mid-day/evening adaptive phrases (🌅⚡🌙) |
+| 7. Auto-triggered morning briefing | 🔄 In progress | v2.6.19+108 | Scheduled at user-set time; spoken "Today overview" |
+| 8. Multi-modal reminder cues | 🔄 In progress | v2.6.19+108 | Vibration + animation + sound (15-min / 5-min escalation) |
+| 9. Emotional tone matching (expand) | ✅ Code done | v2.6.18+107 | Adapt system prompt for stressed/excited/focused moods |
+| 10. Wellness check-in layer | ✅ Code done | v2.6.18+107 | Detect "too much" / "exhausted" → suggest lighten schedule |
+| 11. Wake model v0.2 integration | 🔄 In progress | v2.6.20+109 | Deploy trained ONNX from OpenWakeWord (real voice data) |
+
+### Phase 1 Impact
+- **User:** Companion feels anticipatory + proactive. Scheduling feels effortless. Missed tasks don't create guilt.
+- **Stakeholder:** Positioning shifts to "anticipatory companion" (vs. "smart scheduler"). Retention signal: multi-touch interactions per task.
+- **Technical:** Latency <8s/turn. No crashes. Wake accuracy +10–20% (v0.2). Urgency + tone signals reduce decision fatigue.
+
+---
 
 - [x] D0-A — LLM latency reduction (streaming, max_tokens 180 for voice)
 - [x] D0-B — Date staleness bug (client refresh + server overdue lane + Today UI overdue lane)

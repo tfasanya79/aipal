@@ -34,8 +34,12 @@ def tone_hint_instruction(hint: str | None) -> str | None:
     if hint == "gentle":
         return (
             "Tone hint: user seems subdued or stressed; be gentle and validating. "
+            "Offer to lighten load if scheduling seems heavy. "
             "Do not push planning or tasks unless they ask."
         )
     if hint == "upbeat":
-        return "Tone hint: user seems positive; match their energy without being hyper."
+        return (
+            "Tone hint: user seems positive and energized; match their energy. "
+            "Celebrate accomplishments. Ask if they want to tackle more or maintain focus."
+        )
     return "Tone hint: neutral; stay warm and conversational."

@@ -35,6 +35,7 @@ from app.shared.schemas import (
 )
 from app.modules.brain import conversation as conv_svc
 from app.modules.brain import context_builder as ctx_svc
+from app.modules.brain import reflection as reflection_svc
 from app.modules.today import plan_draft as draft_svc
 from app.modules.brain import plan_extractor
 from app.modules.brain import plan_intent
@@ -223,10 +224,20 @@ def _has_mutation_tool_action(tool_actions: list[str]) -> bool:
 def _draft_to_schema(payload: dict | None) -> PlanDraftResponse | None:
     if not payload or not payload.get("proposed_tasks"):
         return None
+    
+    proposed_tasks = [ProposedTask(**t) for t in payload["proposed_tasks"]]
+    smart_follow_ups = None
+    
+    # Compute smart follow-ups for the first proposed task
+    if proposed_tasks:
+        first_task = payload["proposed_tasks"][0]
+        smart_follow_ups = reflection_svc.smart_follow_up_prompts(first_task)
+    
     return PlanDraftResponse(
         intent=payload.get("intent", "plan_day"),
-        proposed_tasks=[ProposedTask(**t) for t in payload["proposed_tasks"]],
+        proposed_tasks=proposed_tasks,
         clarifying_question=payload.get("clarifying_question"),
+        smart_follow_ups=smart_follow_ups,
     )
 
 
@@ -571,6 +582,32 @@ async def _reply_for_text(
         asyncio.create_task(asyncio.to_thread(remember_turn, uid, role="user", text=text, session_id=sid))
         asyncio.create_task(asyncio.to_thread(remember_turn, uid, role="assistant", text=reply, session_id=sid))
         return reply, False, delete_result.tool_actions or [], sid, None, None
+
+    # Handle delete_task intent from extraction
+    delete_extraction_result = await act_svc.try_handle_delete_extraction(db, user.id, extracted, today_snap)
+    if delete_extraction_result and delete_extraction_result.handled:
+        reply = delete_extraction_result.reply or "Done."
+        if delete_extraction_result.refresh_today:
+            today_snap = await task_svc.today_view(db, user.id, local_day, timezone=tz)
+        await conv_svc.append_turn(db, user.id, sid, "user", text)
+        await conv_svc.append_turn(db, user.id, sid, "assistant", reply)
+        uid = str(user.id)
+        asyncio.create_task(asyncio.to_thread(remember_turn, uid, role="user", text=text, session_id=sid))
+        asyncio.create_task(asyncio.to_thread(remember_turn, uid, role="assistant", text=reply, session_id=sid))
+        return reply, False, delete_extraction_result.tool_actions or [], sid, None, None
+
+    # Handle mark_urgent intent from extraction
+    mark_urgent_result = await act_svc.try_handle_mark_urgent_extraction(db, user.id, extracted, today_snap)
+    if mark_urgent_result and mark_urgent_result.handled:
+        reply = mark_urgent_result.reply or "Done."
+        if mark_urgent_result.refresh_today:
+            today_snap = await task_svc.today_view(db, user.id, local_day, timezone=tz)
+        await conv_svc.append_turn(db, user.id, sid, "user", text)
+        await conv_svc.append_turn(db, user.id, sid, "assistant", reply)
+        uid = str(user.id)
+        asyncio.create_task(asyncio.to_thread(remember_turn, uid, role="user", text=text, session_id=sid))
+        asyncio.create_task(asyncio.to_thread(remember_turn, uid, role="assistant", text=reply, session_id=sid))
+        return reply, False, mark_urgent_result.tool_actions or [], sid, None, None
 
     plan_draft_payload = None
     auto_confirmed = False

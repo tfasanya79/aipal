@@ -155,6 +155,7 @@ class PlanDraftResponse(BaseModel):
     intent: str = "other"
     proposed_tasks: list[ProposedTask] = Field(default_factory=list)
     clarifying_question: str | None = None
+    smart_follow_ups: list[str] | None = None
 
 
 class SuggestDayRequest(BaseModel):
