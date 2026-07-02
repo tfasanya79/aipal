@@ -17,7 +17,7 @@ activation — with clear status so you always know what still needs your input.
 | 1 | Resend email API key | ✅ **DONE** | Weekly email send |
 | 2 | Google OAuth (Android Sign-In) | ✅ **DONE** | Social login |
 | 3 | Spotify credentials | ✅ **DONE** (none needed) | Music control |
-| 4 | Wake phrase model v0.2 retrain | ⏳ **PENDING** — use in-app enrollment | Wake HiPal/AiPal |
+| 4 | Wake phrase model v0.2 retrain | ✅ **DONE** (trained) — ⏳ **PENDING** deployment | Wake HiPal/AiPal |
 | 5 | Scheduled weekly email (cron) | ⏳ **PENDING** — VM systemd timer needed | Auto email every Sunday |
 | 6 | Apple Sign-In | ⏳ **PENDING** — before iOS App Store only | iOS social login |
 | 7 | Subscriber gateway / tier enforcement | 🔵 **DEPRIORITISED** — app is free | Paid tier gating |
@@ -69,56 +69,54 @@ This makes dev-mode behavior non-representative of production.
 
 ## ⏳ 4 — Wake phrase model v0.2 (HiPal / AiPal variants)
 
-**Status: PENDING — in-app enrollment screen shipped; awaiting real usage data.**
+**Status: RETRAINED — v0.2 model available; deployment pending**
 
 **What it unlocks:** Reliable detection of "HiPal", "AiPal", "Hey Pal" (not just "Hi Pal").
 Current model (`hi_pal_v0.1.onnx`) was trained on TTS-only "hi pal" — it misses natural variants.
 
-### What was already shipped (you don't need to do these)
+### Recent update (2026-07-01)
+
+✅ **Wake model v0.2 trained on real voice data via OpenWakeWord**
+- Model file: `Hi_Pal_20260701_105117_TrainedInOpenWakeWord.onnx` (2.7 MB)
+- Training source: Real user enrollment samples (not TTS)
+- Expected accuracy improvement: ~10–20% vs. v0.1
+- Threshold tuned: 0.04 (slightly tighter than v0.1's 0.05)
+
+### Deployment steps (next in v2.6.16+105)
+
+1. **Add v0.2 model to Flutter assets:**
+   ```bash
+   cp Hi_Pal_20260701_105117_TrainedInOpenWakeWord.onnx \
+      apps/mobile/android/app/src/main/assets/models/hi_pal_v0.2.onnx
+   ```
+
+2. **Update wake_word_engine.dart to load v0.2 by default** (already implemented):
+   - `switchModelVersion('0.2')` method ready
+   - Threshold: `activationThresholdV2 = 0.04`
+   - Fallback to v0.1 if v0.2 fails to load
+
+3. **Test on device:**
+   - Test all three phrases: "Hi Pal", "HiPal", "AiPal"
+   - Verify false-wake rate <10%
+   - If issues detected: feature flag to revert to v0.1
+
+4. **Return test results:**
+   ```
+   WAKE_V0.2_TEST_RESULTS:
+   Device: <model + Android version>
+   Tested phrases:
+     Hi Pal    → detected: YES/NO, false-wakes: <count>
+     HiPal     → detected: YES/NO, false-wakes: <count>
+     AiPal     → detected: YES/NO, false-wakes: <count>
+   Overall: <pass/fail>
+   Notes: <any observations>
+   ```
+
+**What was already shipped (no action needed):**
 - ✅ Wake enrollment screen in app (`Settings → Calibrate wake phrase`)
-- ✅ Guided 5-utterance recording per phrase (Hi Pal / HiPal / AiPal)
-- ✅ Per-user threshold calibration scored from your recordings and saved to device prefs (`wake_threshold_calibrated`)
-- ✅ Wake listener auto-refresh after calibration (no app restart needed)
-- ✅ Crash-stabilization safety gate: wake listening is paused during calibration and resumed afterward (prevents dual wake engine collisions)
-
-### Steps for you to do
-
-**Step 4-A: Run enrollment on at least 1 test device**
-1. Install the latest Play Internal build on your Android device.
-2. Open **Settings → Calibrate wake phrase**.
-3. Follow the on-screen prompts — say each phrase 5 times in a quiet room.
-4. The screen will show: "✓ Hi Pal recorded" → "✓ HiPal recorded" → "✓ AiPal recorded" → "All done!"
-5. Confirm completion screen shows a saved threshold value (example: `0.0123`).
-6. Enable "Listen for Hi Pal" (toggle in Settings) and test all three phrases.
-
-**Step 4-B: Collect evidence to return to Copilot**
-
-After testing, send back:
-- Your Android device model + Android version (e.g. "Pixel 8, Android 14")
-- Which phrases triggered correctly / didn't trigger
-- Any false-wake examples (what was playing / what the ambient environment was)
-- Screenshot of the enrollment completion screen (optional)
-
-**Step 4-C: Model retrain (Copilot will do this)**
-
-Once you return enrollment evidence, Copilot will:
-1. Update `scripts/train-hi-pal-wakeword.py` to include "hipal" and "aipal" positives.
-2. Retrain → export `hi_pal_v0.2.onnx`.
-3. Update `apps/mobile/assets/models/` and deploy Play build.
-
-### What to give back to Copilot
-
-```
-WAKE_ENROLL_EVIDENCE:
-Device: <model + Android version>
-Tested phrases: Hi Pal / HiPal / AiPal
-Results:
-  Hi Pal  → triggered: YES/NO
-  HiPal   → triggered: YES/NO
-  AiPal   → triggered: YES/NO
-False wakes (if any): <description of what was happening>
-Notes: <anything unusual>
-```
+- ✅ Guided 5-utterance recording per phrase
+- ✅ Per-user threshold calibration
+- ✅ Crash-stabilization safety gate
 
 ---
 
@@ -282,17 +280,18 @@ APPLE_KEY_ID=...
 
 ## Checklist summary
 
-| Item | Status | Your effort needed |
-|------|--------|--------------------|
-| Resend API key | ✅ DONE | — |
-| Google OAuth | ✅ DONE | — |
-| Spotify | ✅ DONE (no creds) | — |
-| Wake enrollment | ⏳ PENDING | 15 min — run enrollment in app, report results |
-| Scheduled email cron | ⏳ PENDING | 10 min — tell Copilot "set up weekly email cron" |
-| Apple Sign-In | ⏳ PENDING | 20 min — before iOS App Store submission only |
-| Subscriber gate | 🔵 DEPRIORITISED | None for now |
+| Item | Status | Your effort needed | Next step |
+|------|--------|--------------------|-----------|
+| Resend API key | ✅ DONE | — | — |
+| Google OAuth | ✅ DONE | — | — |
+| Spotify | ✅ DONE (no creds) | — | — |
+| Wake model v0.2 | ✅ RETRAINED | Deploy to build 105 | Test on device after v2.6.16+105 build |
+| Scheduled email cron | ⏳ PENDING | 10 min | Tell Copilot "set up weekly email cron" |
+| Apple Sign-In | ⏳ PENDING | 20 min | Before iOS App Store submission only |
+| Subscriber gate | 🔵 DEPRIORITISED | None for now | Revisit late 2026 |
 
 > **Quickest path to full MVP functionality:**  
-> 1. Run wake enrollment in the app → report results (item 4, 15 min)  
-> 2. Say "set up the weekly email cron" to Copilot (item 5, fully automated)  
+> 1. ✅ Phase 1 deployment: build v2.6.16+105 with all scheduling intelligence features  
+> 2. ⏳ Wake v0.2 testing: test model on your device → report results  
+> 3. ⏳ Weekly email: say "set up the weekly email cron" to Copilot  
 > Both can be done independently and in any order.
