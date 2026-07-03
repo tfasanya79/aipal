@@ -19,7 +19,10 @@ class WakeForegroundHandler extends TaskHandler {
       return;
     }
     await _engine!.start();
-    FlutterForegroundTask.sendDataToMain({'event': 'engine_ready'});
+    FlutterForegroundTask.sendDataToMain({
+      'event': 'engine_ready',
+      'modelVersion': _engine!.activeModelVersion,
+    });
   }
 
   @override
@@ -59,7 +62,10 @@ class WakeForegroundHandler extends TaskHandler {
         'error': WakeWordEngine.lastInitError ?? 'Wake engine failed to restart mic',
       });
     } else {
-      FlutterForegroundTask.sendDataToMain({'event': 'engine_ready'});
+      FlutterForegroundTask.sendDataToMain({
+        'event': 'engine_ready',
+        'modelVersion': engine.activeModelVersion,
+      });
     }
   }
 

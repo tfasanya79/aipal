@@ -327,12 +327,32 @@ class _SettingsScreenState extends State<SettingsScreen> {
               ],
             ),
           ),
+        if (state.wakeWordError == null &&
+            state.wakeWordListening &&
+            state.wakeModelVersion != null)
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+            child: Row(
+              children: [
+                const Icon(Icons.check_circle_outline, size: 16, color: Colors.greenAccent),
+                const SizedBox(width: 6),
+                Expanded(
+                  child: Text(
+                    'Using wake model v${state.wakeModelVersion} '
+                    '${state.wakeModelVersion == '0.2' ? '(trained on real voices)' : '(stable default)'}',
+                    style: const TextStyle(fontSize: 13, color: Colors.white60),
+                  ),
+                ),
+              ],
+            ),
+          ),
         if (!kIsWeb)
           ListTile(
             leading: const Icon(Icons.tune_outlined),
-            title: const Text('Calibrate wake phrase'),
+            title: const Text('Fine-tune wake accuracy (optional)'),
             subtitle: const Text(
-              'Personalise "Hi Pal", "HiPal" & "AiPal" to your voice',
+              'The built-in model already works well. Only calibrate if "Hi Pal" '
+              'is missed often or triggers by accident.',
               style: TextStyle(color: Colors.white60),
             ),
             trailing: const Icon(Icons.chevron_right),

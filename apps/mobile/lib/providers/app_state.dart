@@ -64,6 +64,7 @@ class AppState extends ChangeNotifier {
   bool wakeWordEnabled = false;
   bool wakeWordListening = false;
   String? wakeWordError;
+  String? wakeModelVersion;
   bool wakeWordAvailable = !kIsWeb;
   final List<Timer> _nudgeTimers = [];
   bool _appInForeground = true;
@@ -547,9 +548,16 @@ class AppState extends ChangeNotifier {
       wakeWordListening =
           wakeWordEnabled && !_inConversation && !_blocksWakeListener();
       wakeWordError = null;
+      wakeModelVersion = data['modelVersion'] as String? ?? wakeModelVersion;
       _agentDebug('H1', 'app_state._onBackgroundWakeData', 'engine_ready', {
         'wakeWordListening': wakeWordListening,
+        'modelVersion': wakeModelVersion,
       });
+      unawaited(_sessionLogger.log(
+        'wake_diag',
+        'wake_engine_ready',
+        payload: {'modelVersion': wakeModelVersion},
+      ));
       notifyListeners();
     } else if (event == 'engine_failed') {
       wakeWordListening = false;
@@ -557,6 +565,11 @@ class AppState extends ChangeNotifier {
       _agentDebug('H1', 'app_state._onBackgroundWakeData', 'engine_failed', {
         'error': wakeWordError,
       });
+      unawaited(_sessionLogger.log(
+        'wake_diag',
+        'wake_engine_failed',
+        payload: {'error': wakeWordError},
+      ));
       notifyListeners();
     }
   }
@@ -1101,6 +1114,17 @@ class AppState extends ChangeNotifier {
       await _applyMusicCommand(res);
       lastTranscript = res['transcript'] as String?;
       lastReply = res['reply'] as String?;
+      if (returnedSid != null && returnedSid.isNotEmpty) {
+        _lastExportSessionId = returnedSid;
+        unawaited(_sessionLogger.log(
+          returnedSid,
+          'voice_turn',
+          payload: {
+            'transcript_len': (lastTranscript ?? '').length,
+            'reply_len': (lastReply ?? '').length,
+          },
+        ));
+      }
       if (_isEndConversationIntent(lastTranscript)) {
         endAfterTurn = true;
       }

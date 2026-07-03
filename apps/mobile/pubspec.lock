@@ -555,10 +555,9 @@ packages:
   open_wake_word:
     dependency: "direct main"
     description:
-      name: open_wake_word
-      sha256: f1b8d7153956a195c36c6fb6d6cbf58dc54677cadaed29a1ae4abc0c6164109b
-      url: "https://pub.dev"
-    source: hosted
+      path: "third_party/open_wake_word"
+      relative: true
+    source: path
     version: "0.3.0"
   package_config:
     dependency: transitive

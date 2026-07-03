@@ -11,7 +11,7 @@ class WakeWordEngine {
   WakeWordEngine({
     required this.onWake,
     bool Function()? shouldSuppress,
-    String modelVersion = '0.2',
+    String modelVersion = '0.1',
   }) : _shouldSuppress = shouldSuppress, _modelVersion = modelVersion;
 
   final void Function() onWake;
@@ -79,48 +79,75 @@ class WakeWordEngine {
 
   Future<bool> _initImpl() async {
     lastInitError = null;
-    try {
-      // Select model based on version
-      final modelAssetPath = _modelVersion == '0.2' 
-        ? 'assets/models/hi_pal_v0.2.onnx'
-        : 'assets/models/hi_pal_v0.1.onnx';
-      
-      // Update effective threshold for v0.2 model
-      if (_modelVersion == '0.2' && _effectiveThreshold == activationThreshold) {
-        _effectiveThreshold = activationThresholdV2;
+    // Try the configured model version first; if it's v0.2 and it fails
+    // (e.g. incompatible ops in the on-device ONNX runtime build), fall
+    // back to the known-working v0.1 model instead of leaving wake dead.
+    final attemptOrder = _modelVersion == '0.2' ? ['0.2', '0.1'] : ['0.1'];
+    for (final version in attemptOrder) {
+      final ok = await _tryInitModel(version);
+      if (ok) {
+        _modelVersion = version;
+        _initialized = true;
+        if (version == '0.2') {
+          if (_effectiveThreshold == activationThreshold) {
+            _effectiveThreshold = activationThresholdV2;
+          }
+        } else if (_effectiveThreshold == activationThresholdV2) {
+          _effectiveThreshold = activationThreshold;
+        }
+        developer.log('WakeWordEngine initialized with model v$version', name: 'aipal.wake');
+        return true;
       }
-      
+      developer.log(
+        'WakeWordEngine: model v$version failed to init ($lastInitError)'
+        '${version == '0.2' ? ' — falling back to v0.1' : ''}',
+        name: 'aipal.wake',
+      );
+    }
+    return false;
+  }
+
+  /// Attempt to initialize OpenWakeWord with a specific model version.
+  /// Returns true on success; sets [lastInitError] on failure.
+  Future<bool> _tryInitModel(String version) async {
+    try {
+      final modelAssetPath = version == '0.2'
+          ? 'assets/models/hi_pal_v0.2.onnx'
+          : 'assets/models/hi_pal_v0.1.onnx';
       final ok = await OpenWakeWord.init(
         melModelAssetPath: 'assets/models/melspectrogram.onnx',
         embModelAssetPath: 'assets/models/embedding_model.onnx',
         wwModelAssetPaths: [modelAssetPath],
       );
       if (!ok) {
-        lastInitError = 'OpenWakeWord.init returned false';
-        developer.log('WakeWordEngine: $lastInitError', name: 'aipal.wake');
+        lastInitError = 'OpenWakeWord.init returned false (model v$version)';
         return false;
       }
-      _initialized = true;
-      developer.log('WakeWordEngine initialized with model v$_modelVersion', name: 'aipal.wake');
       return true;
     } catch (e, st) {
-      lastInitError = e.toString();
-      developer.log('WakeWordEngine init failed', name: 'aipal.wake', error: e, stackTrace: st);
+      lastInitError = '${e.toString()} (model v$version)';
+      developer.log('WakeWordEngine init failed for v$version', name: 'aipal.wake', error: e, stackTrace: st);
       return false;
     }
   }
   
-  /// Switch to a different model version (0.1 or 0.2)
+  /// Switch to a different model version (0.1 or 0.2).
+  /// If v0.2 is requested but unavailable, init() will transparently
+  /// fall back to v0.1 and update [_modelVersion] accordingly.
   Future<bool> switchModelVersion(String version) async {
     if (_listening) {
       developer.log('Cannot switch model while listening', name: 'aipal.wake');
       return false;
     }
-    
+
     _modelVersion = version;
     _initialized = false;
     return init();
   }
+
+  /// The model version actually active after the most recent successful init
+  /// (may differ from the requested version if a fallback occurred).
+  String get activeModelVersion => _modelVersion;
 
   Future<void> start() async {
     if (_listening) return;
