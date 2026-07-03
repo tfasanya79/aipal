@@ -75,6 +75,16 @@ class OpenWakeWordBindings {
   late final _oww_is_activated =
       _oww_is_activatedPtr.asFunction<bool Function()>();
 
+  ffi.Pointer<ffi.Char> oww_get_last_error() {
+    return _oww_get_last_error();
+  }
+
+  late final _oww_get_last_errorPtr = _lookup<
+      ffi.NativeFunction<
+          ffi.Pointer<ffi.Char> Function()>>('oww_get_last_error');
+  late final _oww_get_last_error = _oww_get_last_errorPtr
+      .asFunction<ffi.Pointer<ffi.Char> Function()>();
+
   void oww_destroy() {
     return _oww_destroy();
   }

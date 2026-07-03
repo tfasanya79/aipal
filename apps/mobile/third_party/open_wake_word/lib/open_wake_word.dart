@@ -76,6 +76,16 @@ class OpenWakeWord {
     }
   }
 
+  /// The detailed reason the most recent native init failed, or an empty
+  /// string if the last init succeeded (or none has run). Populated by the
+  /// native layer (see `oww_get_last_error()`); useful for diagnosing
+  /// on-device-only failures without full crash reporting.
+  static String getLastError() {
+    final ptr = _bindings.oww_get_last_error();
+    if (ptr.address == 0) return '';
+    return ptr.cast<Utf8>().toDartString();
+  }
+
   /// Process a chunk of audio (should be 16kHz PCM, optimally 1280 samples / 80ms)
   static void processAudio(Int16List audioData) {
     final ptr = calloc<Int16>(audioData.length);
@@ -110,9 +120,15 @@ class OpenWakeWord {
     final String filename = assetPath.split('/').last;
     final File file = File('${dir.path}/$filename');
 
-    if (!await file.exists()) {
-      await file.writeAsBytes(bytes, flush: true);
-    }
+    // Always re-copy the bundled asset, even if a file with this name
+    // already exists on disk. App data persists across app updates on
+    // Android, so a stale/partially-written copy from a previous install
+    // (e.g. an interrupted write, or an older build) would otherwise be
+    // loaded forever and never get refreshed by a new release — this bit
+    // us in practice: a v0.1-default hotfix still failed to init on a
+    // device that had a bad cached file from earlier testing. Bundled
+    // models are a few hundred KB each, so re-writing on every init is cheap.
+    await file.writeAsBytes(bytes, flush: true);
     return file.path;
   }
 }

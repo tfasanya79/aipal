@@ -120,7 +120,10 @@ class WakeWordEngine {
         wwModelAssetPaths: [modelAssetPath],
       );
       if (!ok) {
-        lastInitError = 'OpenWakeWord.init returned false (model v$version)';
+        final detail = OpenWakeWord.getLastError();
+        lastInitError = detail.isNotEmpty
+            ? 'OpenWakeWord.init failed (model v$version): $detail'
+            : 'OpenWakeWord.init returned false (model v$version)';
         return false;
       }
       return true;

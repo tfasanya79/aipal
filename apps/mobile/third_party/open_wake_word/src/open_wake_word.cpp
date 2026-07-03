@@ -77,6 +77,10 @@ struct EngineState {
 static Settings* g_settings = nullptr;
 static EngineState* g_state = nullptr;
 
+// Persists across oww_destroy() (which frees g_state) so the Dart layer can
+// query the reason for the most recent init failure after cleanup runs.
+static std::string g_lastError;
+
 static vector<float> g_floatSamples;
 static vector<float> g_mels;
 static vector<vector<float>> g_features;
@@ -378,6 +382,7 @@ extern "C" {
 
 int oww_init(const char* mel_model_path, const char* emb_model_path, const char* ww_model_paths_csv) {
   if (g_settings) oww_destroy();
+  g_lastError.clear();
 
   try {
     g_settings = new Settings();
@@ -395,6 +400,7 @@ int oww_init(const char* mel_model_path, const char* emb_model_path, const char*
     }
 
     if (g_settings->wwModelPaths.empty()) {
+      g_lastError = "No wake word model paths provided";
       return -1;
     }
 
@@ -428,11 +434,13 @@ int oww_init(const char* mel_model_path, const char* emb_model_path, const char*
       // ONNX op set on this device). Clean up gracefully instead of
       // crashing or leaving half-initialized state, and report failure
       // so the Dart layer can fall back to a known-working model.
+      g_lastError = g_state->loadError;
       oww_destroy();
       return -1;
     }
     return 0; // Success
   } catch (const std::exception& e) {
+    g_lastError = e.what();
     return -1; // Error
   }
 }
@@ -459,6 +467,14 @@ float oww_get_probability() {
 bool oww_is_activated() {
   if (!g_state) return false;
   return g_state->isActivated.exchange(false); // Clear activation after reading
+}
+
+// Returns the reason the most recent oww_init() call failed, or an empty
+// string if the last init succeeded (or none has run yet). The returned
+// pointer is owned by the native side and only valid until the next
+// oww_init() call; callers should copy it immediately if needed.
+const char* oww_get_last_error() {
+  return g_lastError.c_str();
 }
 
 void oww_destroy() {

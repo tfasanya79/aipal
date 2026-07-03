@@ -31,6 +31,11 @@ OWW_EXPORT float oww_get_probability();
 // Return the current boolean activation state (threshold triggered).
 OWW_EXPORT bool oww_is_activated();
 
+// Return the reason the most recent oww_init() call failed (empty string
+// if the last init succeeded or none has run yet). Valid until the next
+// oww_init() call.
+OWW_EXPORT const char* oww_get_last_error();
+
 // Clean up and release the engine resources.
 OWW_EXPORT void oww_destroy();
 
