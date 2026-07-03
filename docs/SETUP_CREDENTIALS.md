@@ -69,8 +69,9 @@ This makes dev-mode behavior non-representative of production.
 
 ## ⚠️ 4 — Wake phrase model v0.2 (HiPal / AiPal variants)
 
-**Status: v0.1 restored as the stable default (v2.6.18+107). v0.2 root cause found, fix
-in progress — no external action needed from you right now.**
+**Status: Fixed and deployed (v2.6.19+108). Wake works on v0.1 by default; a separate
+stale-model-cache bug (the actual cause of continued failures after v2.6.18+107) is now
+also fixed — no external action needed from you right now.**
 
 **What it unlocks:** Reliable detection of "HiPal", "AiPal", "Hey Pal" (not just "Hi Pal").
 Current default model (`hi_pal_v0.1.onnx`) was trained on TTS-only "hi pal" — it misses
@@ -100,6 +101,31 @@ but broke wake detection entirely when shipped as the default — see below.
   - Settings now shows which model is actually active ("Using wake model v0.1 (stable
     default)" / "v0.2 (trained on real voices)"), and "Calibrate wake phrase" is relabeled
     "Fine-tune wake accuracy (optional)" since it's no longer required.
+- **2026-07-03 (v2.6.19+108) — round 2 hotfix shipped:**
+  - The v0.1-default hotfix (v2.6.18+107) did **not** fix wake on the test device —
+    screenshots still showed "OpenWakeWord.init returned false" / "Retry listener" even
+    though the device had the new build installed (confirmed via the updated Settings
+    label). This ruled out the v0.1/v0.2 opset-mismatch theory as the active bug here.
+  - **Real root cause found:** the `open_wake_word` plugin's `_extractAsset()` helper only
+    copies a bundled ONNX model file (mel/embedding/wake-word) to the app's documents
+    directory if a file with that name doesn't already exist there — it never overwrites.
+    Android app data survives app updates, so a stale or partially-written cached file from
+    earlier testing (e.g. an interrupted write during one of the earlier crash-storm builds)
+    would be loaded forever, regardless of how many times we fixed and redeployed the
+    bundled asset itself.
+  - **Fixed:** `_extractAsset()` now always re-copies the bundled asset on every init.
+    Self-heals automatically after updating to v2.6.19+108 — no reinstall or "clear
+    storage" needed.
+  - **Also added:** `oww_get_last_error()` native binding, surfacing the real native
+    failure reason (previously only tracked internally) in the app's error messages —
+    useful for diagnosing any future on-device-only failures without full crash reporting.
+  - **Also fixed:** `Mobile CI` (`flutter analyze`) was failing on a lint finding inside the
+    vendored plugin code; excluded `third_party/**` from analysis.
+  - **Unrelated CI issue found (needs your action):** `Sync GitHub Project` workflow fails
+    with `GraphQL 401: Bad credentials`. The `PROJECT_SYNC_TOKEN` repo secret (a GitHub
+    PAT) looks expired or revoked. Please generate a new PAT (classic, `repo` + `project`
+    scopes, or fine-grained with Projects read/write) and update the repo secret — I can't
+    mint a GitHub PAT on your behalf.
 
 ### What's still pending (needs data / a decision from you, not urgent)
 
@@ -288,7 +314,7 @@ APPLE_KEY_ID=...
 | Resend API key | ✅ DONE | — | — |
 | Google OAuth | ✅ DONE | — | — |
 | Spotify | ✅ DONE (no creds) | — | — |
-| Wake model v0.2 | ⚠️ INVESTIGATING (v0.1 stable default restored, v2.6.18+107) | None right now | Optional: test v2.6.18+107 on device, confirm wake works |
+| Wake model v0.2 | ✅ FIXED (stale-cache bug resolved, v2.6.19+108) | None right now | Optional: update to v2.6.19+108 on device, confirm wake activates |
 | Crash reporting (Firebase Crashlytics) | ⏳ PENDING — needs external Firebase project | ~10 min | Create a Firebase project for `io.aipal.mvp`, download `google-services.json`, send it over |
 | Scheduled email cron | ⏳ PENDING | 10 min | Tell Copilot "set up weekly email cron" |
 | Apple Sign-In | ⏳ PENDING | 20 min | Before iOS App Store submission only |
@@ -296,7 +322,7 @@ APPLE_KEY_ID=...
 
 > **Quickest path to full MVP functionality:**  
 > 1. ✅ Phase 1 deployment: v2.6.16+105 with all scheduling intelligence features  
-> 2. ✅ Wake hotfix: v2.6.18+107 restores stable wake detection (v0.1 default + real fallback)  
+> 2. ✅ Wake hotfix: v2.6.19+108 restores stable wake detection (v0.1 default + real fallback + stale-cache fix)  
 > 3. ⏳ Crash reporting: create a Firebase project → send `google-services.json` → Copilot wires up Crashlytics  
 > 4. ⏳ Weekly email: say "set up the weekly email cron" to Copilot  
 > All remaining items can be done independently and in any order.
