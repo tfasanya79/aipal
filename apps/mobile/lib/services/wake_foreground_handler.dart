@@ -19,10 +19,17 @@ class WakeForegroundHandler extends TaskHandler {
       return;
     }
     await _engine!.start();
-    FlutterForegroundTask.sendDataToMain({
-      'event': 'engine_ready',
-      'modelVersion': _engine!.activeModelVersion,
-    });
+    if (!_engine!.isListening) {
+      FlutterForegroundTask.sendDataToMain({
+        'event': 'engine_failed',
+        'error': WakeWordEngine.lastInitError ?? 'Wake engine failed to start listener',
+      });
+    } else {
+      FlutterForegroundTask.sendDataToMain({
+        'event': 'engine_ready',
+        'modelVersion': _engine!.activeModelVersion,
+      });
+    }
   }
 
   @override
