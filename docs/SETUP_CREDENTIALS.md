@@ -17,7 +17,7 @@ activation — with clear status so you always know what still needs your input.
 | 1 | Resend email API key | ✅ **DONE** | Weekly email send |
 | 2 | Google OAuth (Android Sign-In) | ✅ **DONE** | Social login |
 | 3 | Spotify credentials | ✅ **DONE** (none needed) | Music control |
-| 4 | Wake phrase model v0.2 retrain | ✅ **DONE** (trained) — ⏳ **PENDING** deployment | Wake HiPal/AiPal |
+| 4 | Wake phrase model v0.2 retrain | ⚠️ **INVESTIGATING** — v0.1 restored as default (stable), v0.2 compatibility issue found | Wake HiPal/AiPal |
 | 5 | Scheduled weekly email (cron) | ⏳ **PENDING** — VM systemd timer needed | Auto email every Sunday |
 | 6 | Apple Sign-In | ⏳ **PENDING** — before iOS App Store only | iOS social login |
 | 7 | Subscriber gateway / tier enforcement | 🔵 **DEPRIORITISED** — app is free | Paid tier gating |
@@ -67,56 +67,59 @@ This makes dev-mode behavior non-representative of production.
 
 ---
 
-## ⏳ 4 — Wake phrase model v0.2 (HiPal / AiPal variants)
+## ⚠️ 4 — Wake phrase model v0.2 (HiPal / AiPal variants)
 
-**Status: RETRAINED — v0.2 model available; deployment pending**
+**Status: v0.1 restored as the stable default (v2.6.18+107). v0.2 root cause found, fix
+in progress — no external action needed from you right now.**
 
 **What it unlocks:** Reliable detection of "HiPal", "AiPal", "Hey Pal" (not just "Hi Pal").
-Current model (`hi_pal_v0.1.onnx`) was trained on TTS-only "hi pal" — it misses natural variants.
+Current default model (`hi_pal_v0.1.onnx`) was trained on TTS-only "hi pal" — it misses
+natural variants. v0.2 (trained on your real voice via OpenWakeWord) was meant to fix this,
+but broke wake detection entirely when shipped as the default — see below.
 
-### Recent update (2026-07-01)
+### Timeline
 
-✅ **Wake model v0.2 trained on real voice data via OpenWakeWord**
-- Model file: `Hi_Pal_20260701_105117_TrainedInOpenWakeWord.onnx` (2.7 MB)
-- Training source: Real user enrollment samples (not TTS)
-- Expected accuracy improvement: ~10–20% vs. v0.1
-- Threshold tuned: 0.04 (slightly tighter than v0.1's 0.05)
+- **2026-07-01:** v0.2 model trained on real voice samples via OpenWakeWord (813 KB ONNX file).
+- **2026-07-02 (v2.6.17+106):** v0.2 shipped as the default model. Deployed, but the
+  v0.2→v0.1 fallback that was supposed to ship alongside it was never actually committed
+  (a prior commit only touched `pubspec.lock`). Result: wake broke for everyone on this build.
+- **2026-07-03 (v2.6.18+107) — hotfix shipped:**
+  - Root cause identified: the v0.2 ONNX graph (62 nodes, decomposed LayerNorm —
+    `ReduceMean/Sub/Pow/Sqrt/Div/Mul/Add`) is structurally different from v0.1 (9 nodes,
+    fused `LayerNormalization`). Both load fine on desktop ONNX Runtime, but the
+    Android-bundled runtime inside the `open_wake_word` plugin most likely only registers
+    kernels for the reference architecture — so v0.2 fails to load on-device only.
+  - **Default model reverted to v0.1** (known-working) so wake works again immediately.
+  - **Real v0.2→v0.1 fallback implemented** this time (previously only claimed, not
+    actually committed) — if v0.2 is ever re-enabled and fails, the app now
+    automatically retries with v0.1 instead of leaving wake dead.
+  - **Native plugin hardened:** vendored `open_wake_word` into
+    `apps/mobile/third_party/open_wake_word` and patched its C++ model-loading threads
+    with proper try/catch, so an incompatible model fails gracefully instead of risking
+    an uncaught native crash.
+  - Settings now shows which model is actually active ("Using wake model v0.1 (stable
+    default)" / "v0.2 (trained on real voices)"), and "Calibrate wake phrase" is relabeled
+    "Fine-tune wake accuracy (optional)" since it's no longer required.
 
-### Deployment steps (next in v2.6.16+105)
+### What's still pending (needs data / a decision from you, not urgent)
 
-1. **Add v0.2 model to Flutter assets:**
-   ```bash
-   cp Hi_Pal_20260701_105117_TrainedInOpenWakeWord.onnx \
-      apps/mobile/android/app/src/main/assets/models/hi_pal_v0.2.onnx
-   ```
-
-2. **Update wake_word_engine.dart to load v0.2 by default** (already implemented):
-   - `switchModelVersion('0.2')` method ready
-   - Threshold: `activationThresholdV2 = 0.04`
-   - Fallback to v0.1 if v0.2 fails to load
-
-3. **Test on device:**
-   - Test all three phrases: "Hi Pal", "HiPal", "AiPal"
-   - Verify false-wake rate <10%
-   - If issues detected: feature flag to revert to v0.1
-
-4. **Return test results:**
-   ```
-   WAKE_V0.2_TEST_RESULTS:
-   Device: <model + Android version>
-   Tested phrases:
-     Hi Pal    → detected: YES/NO, false-wakes: <count>
-     HiPal     → detected: YES/NO, false-wakes: <count>
-     AiPal     → detected: YES/NO, false-wakes: <count>
-   Overall: <pass/fail>
-   Notes: <any observations>
-   ```
+- **v0.2 compatibility investigation:** to confirm the exact on-device failure (rather than
+  the working theory above) we'd need real device logs, which requires either (a) plugging
+  a test device into a machine with `adb logcat` access, or (b) integrating crash/telemetry
+  reporting (see item 7 below — blocked on a Firebase project). Until then, v0.2 stays
+  off by default; wake works fine on v0.1.
+- **If you want v0.2 pursued further:** the cleanest long-term fix is likely re-exporting
+  the model so it uses the fused `LayerNormalization` op (same shape as v0.1) instead of
+  the decomposed form OpenWakeWord's trainer produced — or rebuilding the plugin's native
+  Android library with a fuller ONNX Runtime op set. Both are follow-up engineering work,
+  not something that needs anything from you right now.
 
 **What was already shipped (no action needed):**
-- ✅ Wake enrollment screen in app (`Settings → Calibrate wake phrase`)
+- ✅ Wake enrollment screen in app (`Settings → Calibrate wake phrase`, now optional)
 - ✅ Guided 5-utterance recording per phrase
 - ✅ Per-user threshold calibration
 - ✅ Crash-stabilization safety gate
+- ✅ v0.1→v0.2 fallback (real, verified) + native crash hardening
 
 ---
 
@@ -285,13 +288,15 @@ APPLE_KEY_ID=...
 | Resend API key | ✅ DONE | — | — |
 | Google OAuth | ✅ DONE | — | — |
 | Spotify | ✅ DONE (no creds) | — | — |
-| Wake model v0.2 | ✅ RETRAINED | Deploy to build 105 | Test on device after v2.6.16+105 build |
+| Wake model v0.2 | ⚠️ INVESTIGATING (v0.1 stable default restored, v2.6.18+107) | None right now | Optional: test v2.6.18+107 on device, confirm wake works |
+| Crash reporting (Firebase Crashlytics) | ⏳ PENDING — needs external Firebase project | ~10 min | Create a Firebase project for `io.aipal.mvp`, download `google-services.json`, send it over |
 | Scheduled email cron | ⏳ PENDING | 10 min | Tell Copilot "set up weekly email cron" |
 | Apple Sign-In | ⏳ PENDING | 20 min | Before iOS App Store submission only |
 | Subscriber gate | 🔵 DEPRIORITISED | None for now | Revisit late 2026 |
 
 > **Quickest path to full MVP functionality:**  
-> 1. ✅ Phase 1 deployment: build v2.6.16+105 with all scheduling intelligence features  
-> 2. ⏳ Wake v0.2 testing: test model on your device → report results  
-> 3. ⏳ Weekly email: say "set up the weekly email cron" to Copilot  
-> Both can be done independently and in any order.
+> 1. ✅ Phase 1 deployment: v2.6.16+105 with all scheduling intelligence features  
+> 2. ✅ Wake hotfix: v2.6.18+107 restores stable wake detection (v0.1 default + real fallback)  
+> 3. ⏳ Crash reporting: create a Firebase project → send `google-services.json` → Copilot wires up Crashlytics  
+> 4. ⏳ Weekly email: say "set up the weekly email cron" to Copilot  
+> All remaining items can be done independently and in any order.

@@ -1,8 +1,9 @@
 # AiPal — product status (living doc)
 
 **Canonical current-state reference.**  
-**App version:** `2.6.16+105` (Play Internal build, 2026-07-02 — Phase 1 Companion Scheduling Intelligence complete)  
-**Phase 1 Complete:** Scheduling Intelligence uplift (urgency classification, smart follow-ups, auto-time-blocking, recovery, wake v0.2)  
+**App version:** `2.6.18+107` (Play Internal build, 2026-07-03 — wake bug hotfix)  
+**Phase 1 Complete:** Scheduling Intelligence uplift (urgency classification, smart follow-ups, auto-time-blocking, recovery)  
+**Wake phrase:** Stable default is v0.1 (known-working). v0.2 (voice-trained) is disabled by default pending an on-device ONNX Runtime compatibility fix — see Phase 1 Patch section below.  
 **Stack:** Flutter mobile/web + FastAPI v2 — not Capacitor/React Native.
 
 ---
@@ -67,7 +68,7 @@
 | 5. Expanded voice editing | ✅ Done | v2.6.16+105 | Added `delete_task` and `mark_urgent` intents to plan_extractor; integrated handlers in action_executor and voice router |
 | 6. Micro-motivation nudges | ✅ Done | v2.6.16+105 | Adaptive phrases by hour/mood; `micro_motivation_phrase()` leveraged in morning briefing |
 | 7. Multi-modal reminder cues | ✅ Done | v2.6.16+105 | Vibration patterns (urgent vs normal), urgency emoji (🔴/🟡/🟢), sound differentiation in notification_service.dart |
-| 8. Wake model v0.2 integration | ✅ Done | v2.6.16+105 | Added `switchModelVersion()` and v0.2 threshold (0.04) support in wake_word_engine.dart |
+| 8. Wake model v0.2 integration | ⚠️ Reverted to v0.1 default | v2.6.18+107 | v0.2 caused a total wake regression when shipped as default in v2.6.17+106 (the claimed fallback was never actually committed). Hotfixed: real fallback implemented, v0.1 restored as default. See Phase 1 Patch section. |
 | 9. Emotional tone matching (expand) | ✅ Done | v2.6.16+105 | mood.py expanded with stressed/excited/focused tone instructions |
 | 10. Wellness check-in layer | ✅ Done | v2.6.16+105 | reflection.py wellness + follow-up templates ready for integration |
 | 11. Briefing scheduler service | ✅ Done | v2.6.16+105 | New `briefing_scheduler.py` for async scheduled briefing callbacks |
@@ -104,6 +105,38 @@
 - [x] D0-B — Date staleness bug (client refresh + server overdue lane + Today UI overdue lane)
 - [x] D0-C — Auth gateway: Google + Apple Sign-In
 - [x] D1 — Voice baseline code fixes (gate 4; 1/3/6/6-debounce confirmed); smoke script
+### Phase 1 Patch: Wake bug hotfix (v2.6.18+107, 2026-07-03)
+
+v2.6.17+106 shipped v0.2 as the default wake model, but the v0.2→v0.1 fallback
+described in that commit's message was never actually committed (only
+`pubspec.lock` changed) — wake was completely broken for all users on that build.
+
+**Root cause (working theory, pending device-log confirmation):** the v0.2 model
+(OpenWakeWord-trained on real voice, 62 ONNX nodes with a decomposed LayerNorm)
+has a structurally different graph than v0.1 (9 nodes, fused `LayerNormalization`).
+Both load fine on desktop ONNX Runtime; the Android-bundled runtime inside the
+`open_wake_word` plugin most likely only registers kernels for the reference
+architecture, so v0.2 fails to load on-device only.
+
+**Fixed in v2.6.18+107:**
+- Default model reverted to v0.1 (known-working) — wake works again immediately.
+- Real v0.2→v0.1 fallback implemented in `wake_word_engine.dart` (this time
+  actually committed and verified in the build).
+- `open_wake_word` plugin vendored into `apps/mobile/third_party/open_wake_word`
+  and its native C++ model-loading threads hardened with try/catch, so an
+  incompatible model fails gracefully instead of risking an uncaught native
+  crash on a detached thread.
+- Settings now shows the actually-active model version; "Calibrate wake phrase"
+  relabeled "Fine-tune wake accuracy (optional)".
+- `SessionLogger` (Settings → "Record test sessions") expanded to also log
+  voice turns and wake engine ready/failed events — previously it only fired
+  for typed text messages, missing the app's primary (voice) usage path.
+
+**Still open:** confirming the exact on-device failure needs real device logs
+(no crash reporting SDK is integrated yet — Firebase Crashlytics is blocked on
+an external Firebase project + `google-services.json`, see `SETUP_CREDENTIALS.md`).
+v0.2 stays opt-in/disabled until this is resolved.
+
 - [ ] D2 — Wake phrase model v0.2 (in-app enrollment screen shipped; model retrain needs enrollment data)
 - [x] D3 — Today intelligence uplift (multi-task, relative times, music intent in extractor)
 - [x] D4 — Spotify Android deep-link control (policy-safe MVP path)
