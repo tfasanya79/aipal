@@ -1,7 +1,7 @@
 # AiPal — product status (living doc)
 
 **Canonical current-state reference.**  
-**App version:** `2.6.19+108` (Play Internal build, 2026-07-03 — wake bug hotfix round 2: stale model-cache fix)  
+**App version:** `2.6.21+110` (Play Internal build, 2026-07-07 — onboarding timeout resilience hotfix + non-blocking profile sync)  
 **Phase 1 Complete:** Scheduling Intelligence uplift (urgency classification, smart follow-ups, auto-time-blocking, recovery)  
 **Wake phrase:** Stable default is v0.1 (known-working). v0.2 (voice-trained) is disabled by default pending an on-device ONNX Runtime compatibility fix — see Phase 1 Patch section below.  
 **Stack:** Flutter mobile/web + FastAPI v2 — not Capacitor/React Native.
@@ -180,6 +180,24 @@ repository secret (a GitHub PAT) appears expired or revoked. A repo admin
 needs to generate a new PAT (classic, with `repo` + `project` scopes, or a
 fine-grained token with Projects read/write) and update the secret; the
 agent cannot mint a GitHub PAT on the user's behalf.
+
+### Hotfix: onboarding timeout resilience (v2.6.21+110, 2026-07-07)
+
+User-reported onboarding failures on the profile step were showing raw
+`TimeoutException after 0:00:12.000000: Future not completed`, blocking setup.
+
+**Fixed in v2.6.21+110:**
+- Onboarding submit now uses a staged completion flow in `AppState` instead of
+  throwing raw exceptions directly in the screen.
+- If profile update times out after auth is already valid, the app now proceeds
+  to Home and queues profile sync in the background (per product decision).
+- Pending profile payload is persisted in secure storage and retried on startup
+  until sync succeeds.
+- `ApiClient` now enforces HTTP error handling for auth/profile routes
+  (`register`, `verify`, `getProfile`, `updateProfile`) and supports per-call
+  timeout overrides for this flow.
+- Onboarding UI now prevents duplicate submits, shows in-progress state, and
+  maps technical failures to user-safe messages.
 
 - [ ] D2 — Wake phrase model v0.2 (in-app enrollment screen shipped; model retrain needs enrollment data)
 - [x] D3 — Today intelligence uplift (multi-task, relative times, music intent in extractor)

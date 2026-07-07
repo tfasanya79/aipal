@@ -22,6 +22,18 @@ import '../services/wake_word_engine.dart';
 import '../services/wake_word_prefs.dart';
 import '../services/wake_word_service.dart';
 
+class OnboardingCompletionResult {
+  const OnboardingCompletionResult({
+    required this.proceedToHome,
+    this.errorMessage,
+    this.queuedBackgroundSync = false,
+  });
+
+  final bool proceedToHome;
+  final String? errorMessage;
+  final bool queuedBackgroundSync;
+}
+
 class AppState extends ChangeNotifier {
   AppState() {
     if (_isAndroid) {
@@ -81,12 +93,17 @@ class AppState extends ChangeNotifier {
   DateTime? _wakeSuppressUntil;
   static const _wakeSuppressDuration = Duration(seconds: 3);
   String? _lastRouteDebugKey;
-  late final SessionLogger _sessionLogger = SessionLogger(() => token != null ? api : null);
+  late final SessionLogger _sessionLogger = SessionLogger(
+    () => token != null ? api : null,
+  );
   String? _lastExportSessionId;
   String? lastCalendarSyncStatus;
   String? lastLocationSyncStatus;
   DateTime? lastCalendarSyncAt;
   DateTime? lastLocationSyncAt;
+  static const _pendingOnboardingProfileKey =
+      'pending_onboarding_profile_sync_v1';
+  bool _pendingOnboardingProfileSyncInFlight = false;
 
   ApiClient get api => ApiClient(token);
 
@@ -95,7 +112,12 @@ class AppState extends ChangeNotifier {
   /// True while a bounded voice conversation session is open (multi-turn until idle timeout).
   bool get inConversation => _inConversation;
 
-  void _agentDebug(String hypothesisId, String location, String message, [Map<String, dynamic>? data]) {
+  void _agentDebug(
+    String hypothesisId,
+    String location,
+    String message, [
+    Map<String, dynamic>? data,
+  ]) {
     if (token == null) return;
     unawaited(
       api.agentDebugLog(
@@ -111,7 +133,9 @@ class AppState extends ChangeNotifier {
       !kIsWeb && defaultTargetPlatform == TargetPlatform.android;
 
   String get _wakeName =>
-      profile?['wake_name'] as String? ?? profile?['display_name'] as String? ?? 'friend';
+      profile?['wake_name'] as String? ??
+      profile?['display_name'] as String? ??
+      'friend';
 
   /// The user's selected Companion voice ID (from voice catalogue). Defaults to "aria".
   String get companionVoiceId => profile?['tts_voice'] as String? ?? 'aria';
@@ -119,14 +143,16 @@ class AppState extends ChangeNotifier {
     final up = todayView?['up_next'] as Map<String, dynamic>?;
     if (up != null) return up;
     final sections = todayView?['sections'] as Map<String, dynamic>?;
-    final upcoming = (sections?['upcoming'] as List?)?.cast<Map<String, dynamic>>() ?? [];
+    final upcoming =
+        (sections?['upcoming'] as List?)?.cast<Map<String, dynamic>>() ?? [];
     return upcoming.isNotEmpty ? upcoming.first : null;
   }
 
   List<Map<String, dynamic>> get openTasksForReview {
     final sections = todayView?['sections'] as Map<String, dynamic>?;
     final now = (sections?['now'] as List?)?.cast<Map<String, dynamic>>() ?? [];
-    final upcoming = (sections?['upcoming'] as List?)?.cast<Map<String, dynamic>>() ?? [];
+    final upcoming =
+        (sections?['upcoming'] as List?)?.cast<Map<String, dynamic>>() ?? [];
     return [...now, ...upcoming];
   }
 
@@ -167,6 +193,7 @@ class AppState extends ChangeNotifier {
           await _loadCheckinBanner();
           await refreshTodayView();
           _startDateCheckTimer();
+          await _flushPendingOnboardingProfileSync();
         } catch (_) {
           token = null;
           profile = null;
@@ -243,7 +270,10 @@ class AppState extends ChangeNotifier {
       }
       final profileCity = profile?['city'] as String?;
       if (loc.city != profileCity) {
-        profile = await api.updateProfile({'city': loc.city, 'country_code': loc.countryCode});
+        profile = await api.updateProfile({
+          'city': loc.city,
+          'country_code': loc.countryCode,
+        });
       }
       lastLocationSyncAt = DateTime.now();
       lastLocationSyncStatus = 'Detected ${loc.city}, ${loc.countryCode}';
@@ -290,7 +320,8 @@ class AppState extends ChangeNotifier {
 
   /// Stabilization mode: Android wake stays on FGS-only to avoid dual-engine races.
   bool _useForegroundWakeRoute() =>
-      !_isAndroid && (_lifecycle == AppLifecycleState.resumed || _appInForeground);
+      !_isAndroid &&
+      (_lifecycle == AppLifecycleState.resumed || _appInForeground);
 
   void _armWakeSuppress([Duration? duration]) {
     final d = duration ?? _wakeSuppressDuration;
@@ -320,9 +351,12 @@ class AppState extends ChangeNotifier {
     _foregroundDebounce = Timer(const Duration(milliseconds: 800), () {
       _foregroundDebounce = null;
       if (_lifecycle == AppLifecycleState.resumed) {
-        _agentDebug('H2', 'app_state.setAppForeground', 'background_debounce_skipped', {
-          'lifecycle': _lifecycle.name,
-        });
+        _agentDebug(
+          'H2',
+          'app_state.setAppForeground',
+          'background_debounce_skipped',
+          {'lifecycle': _lifecycle.name},
+        );
         return;
       }
       if (!_appInForeground) return;
@@ -370,7 +404,8 @@ class AppState extends ChangeNotifier {
       return;
     }
 
-    final shouldListen = wakeWordEnabled &&
+    final shouldListen =
+        wakeWordEnabled &&
         selectedTab == 0 &&
         !_inConversation &&
         !_blocksWakeListener();
@@ -412,15 +447,20 @@ class AppState extends ChangeNotifier {
         '${_useForegroundWakeRoute()}|$_lifecycle|$_appInForeground|$selectedTab|$suppressed|$_activeWakeRoute|${_wakeWord?.isListening}';
     if (routeKey != _lastRouteDebugKey) {
       _lastRouteDebugKey = routeKey;
-      _agentDebug('H2', 'app_state._syncAndroidBackgroundWake', 'route_decision', {
-        'foreground': _appInForeground,
-        'lifecycle': _lifecycle.name,
-        'useForegroundRoute': _useForegroundWakeRoute(),
-        'tab': selectedTab,
-        'suppressed': suppressed,
-        'activeRoute': _activeWakeRoute,
-        'listening': _wakeWord?.isListening ?? false,
-      });
+      _agentDebug(
+        'H2',
+        'app_state._syncAndroidBackgroundWake',
+        'route_decision',
+        {
+          'foreground': _appInForeground,
+          'lifecycle': _lifecycle.name,
+          'useForegroundRoute': _useForegroundWakeRoute(),
+          'tab': selectedTab,
+          'suppressed': suppressed,
+          'activeRoute': _activeWakeRoute,
+          'listening': _wakeWord?.isListening ?? false,
+        },
+      );
     }
 
     if (suppressed) {
@@ -462,7 +502,8 @@ class AppState extends ChangeNotifier {
       if (!await _wakeWord!.init()) {
         _activeWakeRoute = null;
         wakeWordListening = false;
-        wakeWordError = WakeWordEngine.lastInitError ?? 'Wake word engine failed to start.';
+        wakeWordError =
+            WakeWordEngine.lastInitError ?? 'Wake word engine failed to start.';
         _agentDebug('H1', 'app_state.foreground_wake', 'init_failed', {
           'error': wakeWordError,
         });
@@ -499,7 +540,9 @@ class AppState extends ChangeNotifier {
         wakeWordError = null;
         _wakeEngineReadyCompleter = Completer<void>();
         WakeBackgroundService.ensureListening();
-        final ready = await _awaitWakeEngineReady(timeout: const Duration(seconds: 8));
+        final ready = await _awaitWakeEngineReady(
+          timeout: const Duration(seconds: 8),
+        );
         if (!ready) {
           wakeWordListening = false;
           wakeWordError =
@@ -508,8 +551,11 @@ class AppState extends ChangeNotifier {
       }
     } else {
       wakeWordListening = false;
-      wakeWordError = 'Microphone or notification permission required for Hi Pal.';
-      if (wakeWordEnabled && !_wakePausedForCalibration && _wakeRetryAttempts < 2) {
+      wakeWordError =
+          'Microphone or notification permission required for Hi Pal.';
+      if (wakeWordEnabled &&
+          !_wakePausedForCalibration &&
+          _wakeRetryAttempts < 2) {
         _wakeRetryAttempts += 1;
         _wakeRetryTimer?.cancel();
         _wakeRetryTimer = Timer(Duration(seconds: 2 * _wakeRetryAttempts), () {
@@ -538,10 +584,15 @@ class AppState extends ChangeNotifier {
     if (data is! Map) return;
     final event = data['event'];
     if (event == 'wake') {
-      _agentDebug('H1', 'app_state._onBackgroundWakeData', 'wake_event_received', {
-        'inConversation': _inConversation,
-        'loopActive': _voiceLoop?.isActive ?? false,
-      });
+      _agentDebug(
+        'H1',
+        'app_state._onBackgroundWakeData',
+        'wake_event_received',
+        {
+          'inConversation': _inConversation,
+          'loopActive': _voiceLoop?.isActive ?? false,
+        },
+      );
       unawaited(handleBackgroundWake());
     } else if (event == 'engine_ready') {
       _wakeEngineReadyCompleter?.complete();
@@ -553,23 +604,28 @@ class AppState extends ChangeNotifier {
         'wakeWordListening': wakeWordListening,
         'modelVersion': wakeModelVersion,
       });
-      unawaited(_sessionLogger.log(
-        'wake_diag',
-        'wake_engine_ready',
-        payload: {'modelVersion': wakeModelVersion},
-      ));
+      unawaited(
+        _sessionLogger.log(
+          'wake_diag',
+          'wake_engine_ready',
+          payload: {'modelVersion': wakeModelVersion},
+        ),
+      );
       notifyListeners();
     } else if (event == 'engine_failed') {
       wakeWordListening = false;
-      wakeWordError = data['error'] as String? ?? 'Wake word engine failed to start.';
+      wakeWordError =
+          data['error'] as String? ?? 'Wake word engine failed to start.';
       _agentDebug('H1', 'app_state._onBackgroundWakeData', 'engine_failed', {
         'error': wakeWordError,
       });
-      unawaited(_sessionLogger.log(
-        'wake_diag',
-        'wake_engine_failed',
-        payload: {'error': wakeWordError},
-      ));
+      unawaited(
+        _sessionLogger.log(
+          'wake_diag',
+          'wake_engine_failed',
+          payload: {'error': wakeWordError},
+        ),
+      );
       notifyListeners();
     }
   }
@@ -622,7 +678,9 @@ class AppState extends ChangeNotifier {
   Future<void> login(String email) async {
     final reg = await api.register(email);
     final devToken = reg['dev_token'] as String?;
-    if (devToken == null) throw Exception('No dev token — configure SMTP for production');
+    if (devToken == null) {
+      throw Exception('No dev token — configure SMTP for production');
+    }
     final auth = await ApiClient(null).verify(devToken);
     token = auth['access_token'] as String;
     await _storage.write(key: 'token', value: token);
@@ -647,6 +705,133 @@ class AppState extends ChangeNotifier {
   Future<void> updateProfile(Map<String, dynamic> data) async {
     profile = await api.updateProfile(data);
     notifyListeners();
+  }
+
+  Future<OnboardingCompletionResult> completeOnboarding({
+    required bool continueProfile,
+    required String email,
+    required Map<String, dynamic> profileData,
+  }) async {
+    var stage = continueProfile ? 'update_profile' : 'login';
+    try {
+      if (!continueProfile) {
+        stage = 'login';
+        await login(email);
+      }
+      stage = 'update_profile';
+      profile = await api.updateProfile(
+        profileData,
+        timeout: const Duration(seconds: 20),
+      );
+      await _storage.delete(key: _pendingOnboardingProfileKey);
+      notifyListeners();
+      return const OnboardingCompletionResult(proceedToHome: true);
+    } catch (e) {
+      final isTimeout = _isTimeoutLikeError(e);
+      if (isTimeout && token != null && stage == 'update_profile') {
+        _applyLocalProfilePatch(profileData);
+        await _storage.write(
+          key: _pendingOnboardingProfileKey,
+          value: jsonEncode(profileData),
+        );
+        unawaited(_retryPendingOnboardingProfileSync());
+        return const OnboardingCompletionResult(
+          proceedToHome: true,
+          queuedBackgroundSync: true,
+        );
+      }
+      return OnboardingCompletionResult(
+        proceedToHome: false,
+        errorMessage: _mapOnboardingError(e, stage: stage),
+      );
+    }
+  }
+
+  bool _isTimeoutLikeError(Object e) =>
+      e is TimeoutException || e.toString().contains('TimeoutException');
+
+  bool _isNetworkLikeError(Object e) {
+    final s = e.toString().toLowerCase();
+    return s.contains('socketexception') ||
+        s.contains('failed host lookup') ||
+        s.contains('connection closed') ||
+        s.contains('connection refused') ||
+        s.contains('network is unreachable');
+  }
+
+  String _mapOnboardingError(Object e, {required String stage}) {
+    final msg = e.toString().toLowerCase();
+    if (_isTimeoutLikeError(e)) {
+      if (stage == 'login') {
+        return 'Network timed out while signing in. Check your internet and try again.';
+      }
+      return 'Profile sync timed out. You can retry now.';
+    }
+    if (msg.contains('401') ||
+        msg.contains('not authenticated') ||
+        msg.contains('invalid token') ||
+        msg.contains('user not found')) {
+      return 'Your session expired. Please sign in again.';
+    }
+    if (_isNetworkLikeError(e)) {
+      return 'Cannot reach AiPal right now. Check your internet and try again.';
+    }
+    return 'Could not finish setup right now. Please try again.';
+  }
+
+  void _applyLocalProfilePatch(Map<String, dynamic> patch) {
+    final next = Map<String, dynamic>.from(
+      profile ?? const <String, dynamic>{},
+    );
+    next.addAll(patch);
+    profile = next;
+    notifyListeners();
+  }
+
+  Future<Map<String, dynamic>?> _readPendingOnboardingProfileSync() async {
+    final raw = await _storage.read(key: _pendingOnboardingProfileKey);
+    if (raw == null || raw.isEmpty) return null;
+    try {
+      return jsonDecode(raw) as Map<String, dynamic>;
+    } catch (_) {
+      await _storage.delete(key: _pendingOnboardingProfileKey);
+      return null;
+    }
+  }
+
+  Future<void> _flushPendingOnboardingProfileSync() async {
+    if (token == null || _pendingOnboardingProfileSyncInFlight) return;
+    final pending = await _readPendingOnboardingProfileSync();
+    if (pending == null) return;
+    _pendingOnboardingProfileSyncInFlight = true;
+    try {
+      profile = await api.updateProfile(
+        pending,
+        timeout: const Duration(seconds: 20),
+      );
+      await _storage.delete(key: _pendingOnboardingProfileKey);
+      notifyListeners();
+    } catch (_) {
+      // Keep pending payload for next retry/app launch.
+    } finally {
+      _pendingOnboardingProfileSyncInFlight = false;
+    }
+  }
+
+  Future<void> _retryPendingOnboardingProfileSync() async {
+    const delays = <Duration>[
+      Duration(seconds: 5),
+      Duration(seconds: 15),
+      Duration(seconds: 30),
+    ];
+    for (final delay in delays) {
+      await Future<void>.delayed(delay);
+      await _flushPendingOnboardingProfileSync();
+      final stillPending = await _storage.read(
+        key: _pendingOnboardingProfileKey,
+      );
+      if (stillPending == null || stillPending.isEmpty) return;
+    }
   }
 
   Future<void> refreshTasks() async {
@@ -738,7 +923,12 @@ class AppState extends ChangeNotifier {
       final hour = dueLocal.hour;
       if (hour >= 22 || hour < 7) continue;
       _nudgeTimers.add(
-        Timer(delay, () => unawaited(handleForegroundNudge(id, NotificationService.nudgeLeadMinutes))),
+        Timer(
+          delay,
+          () => unawaited(
+            handleForegroundNudge(id, NotificationService.nudgeLeadMinutes),
+          ),
+        ),
       );
     }
   }
@@ -773,7 +963,11 @@ class AppState extends ChangeNotifier {
     await refreshTodayView();
   }
 
-  Future<void> updateTaskSchedule(int id, DateTime dueLocal, int minutes) async {
+  Future<void> updateTaskSchedule(
+    int id,
+    DateTime dueLocal,
+    int minutes,
+  ) async {
     await api.updateTask(id, {
       'due_at': dueLocal.toUtc().toIso8601String(),
       'estimated_minutes': minutes,
@@ -798,7 +992,11 @@ class AppState extends ChangeNotifier {
     await refreshTodayView();
   }
 
-  Future<void> reorderUpcoming(List<Map<String, dynamic>> upcoming, int oldIndex, int newIndex) async {
+  Future<void> reorderUpcoming(
+    List<Map<String, dynamic>> upcoming,
+    int oldIndex,
+    int newIndex,
+  ) async {
     final items = List<Map<String, dynamic>>.from(upcoming);
     final moved = items.removeAt(oldIndex);
     items.insert(newIndex, moved);
@@ -853,8 +1051,7 @@ class AppState extends ChangeNotifier {
 
   bool _isSpeakingForVad() => _speaking;
 
-  bool _blocksWakeListener() =>
-      _inConversation || _speaking || _processingTurn;
+  bool _blocksWakeListener() => _inConversation || _speaking || _processingTurn;
 
   bool _blocksWakeFire() {
     if (_blocksWakeListener()) return true;
@@ -891,13 +1088,15 @@ class AppState extends ChangeNotifier {
     // Gate 6: 300ms debounce — prevent rapid double-tap reopening a session.
     final now = DateTime.now();
     if (_lastToggleLiveAt != null &&
-        now.difference(_lastToggleLiveAt!) < const Duration(milliseconds: 300)) {
+        now.difference(_lastToggleLiveAt!) <
+            const Duration(milliseconds: 300)) {
       return;
     }
     _lastToggleLiveAt = now;
     _toggleLiveInProgress = true;
     try {
-      final liveActive = _inConversation ||
+      final liveActive =
+          _inConversation ||
           liveSession.isActive ||
           (_voiceLoop?.isActive ?? false);
       if (liveActive) {
@@ -991,7 +1190,10 @@ class AppState extends ChangeNotifier {
       await _endConversation();
       return;
     }
-    if (_consecutiveDiscards >= 2 && !_speaking && !_processingTurn && !_softPromptShown) {
+    if (_consecutiveDiscards >= 2 &&
+        !_speaking &&
+        !_processingTurn &&
+        !_softPromptShown) {
       _softPromptShown = true;
       lastReply = "I'm listening — go ahead.";
       notifyListeners();
@@ -1040,7 +1242,9 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
-  Future<bool> _awaitWakeEngineReady({Duration timeout = const Duration(seconds: 5)}) async {
+  Future<bool> _awaitWakeEngineReady({
+    Duration timeout = const Duration(seconds: 5),
+  }) async {
     final completer = _wakeEngineReadyCompleter;
     if (completer == null) return false;
     try {
@@ -1065,7 +1269,8 @@ class AppState extends ChangeNotifier {
   static bool _isNoiseClassReply(String? reply) {
     if (reply == null || reply.isEmpty) return false;
     final lower = reply.toLowerCase();
-    return lower.contains('did not catch') || lower.contains('did not receive any audio');
+    return lower.contains('did not catch') ||
+        lower.contains('did not receive any audio');
   }
 
   Future<void> _playLiveGreeting() async {
@@ -1108,7 +1313,8 @@ class AppState extends ChangeNotifier {
       );
       if (turnGen != _turnGeneration) return;
       final returnedSid = res['session_id'] as String?;
-      if (returnedSid != null && (liveSession.sessionId == null || liveSession.sessionId!.isEmpty)) {
+      if (returnedSid != null &&
+          (liveSession.sessionId == null || liveSession.sessionId!.isEmpty)) {
         liveSession.sessionId = returnedSid;
       }
       await _applyMusicCommand(res);
@@ -1116,14 +1322,16 @@ class AppState extends ChangeNotifier {
       lastReply = res['reply'] as String?;
       if (returnedSid != null && returnedSid.isNotEmpty) {
         _lastExportSessionId = returnedSid;
-        unawaited(_sessionLogger.log(
-          returnedSid,
-          'voice_turn',
-          payload: {
-            'transcript_len': (lastTranscript ?? '').length,
-            'reply_len': (lastReply ?? '').length,
-          },
-        ));
+        unawaited(
+          _sessionLogger.log(
+            returnedSid,
+            'voice_turn',
+            payload: {
+              'transcript_len': (lastTranscript ?? '').length,
+              'reply_len': (lastReply ?? '').length,
+            },
+          ),
+        );
       }
       if (_isEndConversationIntent(lastTranscript)) {
         endAfterTurn = true;
@@ -1139,7 +1347,8 @@ class AppState extends ChangeNotifier {
         if (pendingPlanDraft != null) {
           shouldRefreshToday = true;
         }
-        if (res['tool_actions'] is List && (res['tool_actions'] as List).isNotEmpty) {
+        if (res['tool_actions'] is List &&
+            (res['tool_actions'] as List).isNotEmpty) {
           shouldRefreshToday = true;
         }
       }
@@ -1148,7 +1357,8 @@ class AppState extends ChangeNotifier {
       _consecutiveTurnTimeouts = 0;
       final skipTts = res['skip_tts'] == true;
       final transcript = (res['transcript'] as String?) ?? '';
-      if (skipTts || (transcript.isEmpty && _isNoiseClassReply(res['reply'] as String?))) {
+      if (skipTts ||
+          (transcript.isEmpty && _isNoiseClassReply(res['reply'] as String?))) {
         if (transcript.isEmpty) {
           lastReply = null;
         }
@@ -1157,8 +1367,8 @@ class AppState extends ChangeNotifier {
       }
     } catch (e) {
       if (turnGen == _turnGeneration) {
-        final isTimeout = e is TimeoutException ||
-            e.toString().contains('TimeoutException');
+        final isTimeout =
+            e is TimeoutException || e.toString().contains('TimeoutException');
         if (isTimeout) {
           _consecutiveTurnTimeouts++;
           lastReply = _consecutiveTurnTimeouts >= 2
@@ -1193,7 +1403,10 @@ class AppState extends ChangeNotifier {
     }
   }
 
-  Future<void> _playAudioResponse(Map<String, dynamic> res, {int? turnGen}) async {
+  Future<void> _playAudioResponse(
+    Map<String, dynamic> res, {
+    int? turnGen,
+  }) async {
     final audioB64 = res['audio_base64'] as String?;
     final mime = res['audio_mime'] as String? ?? 'audio/mpeg';
     if (audioB64 == null || audioB64.isEmpty) return;
@@ -1208,7 +1421,10 @@ class AppState extends ChangeNotifier {
       if (!completer.isCompleted) completer.complete();
     });
     await _player.play(BytesSource(base64Decode(audioB64), mimeType: mime));
-    await completer.future.timeout(const Duration(minutes: 2), onTimeout: () {});
+    await completer.future.timeout(
+      const Duration(minutes: 2),
+      onTimeout: () {},
+    );
     if (turnGen != null && turnGen != _turnGeneration) return;
     _speaking = false;
     notifyListeners();
@@ -1230,7 +1446,10 @@ class AppState extends ChangeNotifier {
     super.dispose();
   }
 
-  Future<Map<String, dynamic>> sendTextTurn(String text, {String? sessionId}) async {
+  Future<Map<String, dynamic>> sendTextTurn(
+    String text, {
+    String? sessionId,
+  }) async {
     if (liveSession.isActive) {
       liveSession.sendText(text);
       return {'reply': text};
@@ -1242,7 +1461,10 @@ class AppState extends ChangeNotifier {
     await _sessionLogger.log(
       _lastExportSessionId!,
       'text_turn',
-      payload: {'text_len': text.length, 'reply_len': (res['reply'] as String? ?? '').length},
+      payload: {
+        'text_len': text.length,
+        'reply_len': (res['reply'] as String? ?? '').length,
+      },
     );
     await _sessionLogger.flushNow(_lastExportSessionId!);
     lastReply = res['reply'] as String?;
@@ -1256,11 +1478,14 @@ class AppState extends ChangeNotifier {
     if (!_isAndroid) return;
     final command = res['music_command'];
     if (command is! Map) return;
-    final launched = await MusicCommandService.launchSpotify(Map<String, dynamic>.from(command));
+    final launched = await MusicCommandService.launchSpotify(
+      Map<String, dynamic>.from(command),
+    );
     if (!launched) {
       final action = (command['action'] as String? ?? 'play').toLowerCase();
       if (action == 'play') {
-        lastReply = "I couldn't open Spotify on this device. Install Spotify and try again.";
+        lastReply =
+            "I couldn't open Spotify on this device. Install Spotify and try again.";
       }
     }
   }
@@ -1274,11 +1499,13 @@ class AppState extends ChangeNotifier {
 
   Future<bool> sessionRecordingEnabled() => SessionPrefs.isRecordingEnabled();
 
-  Future<void> setSessionRecordingEnabled(bool value) => SessionPrefs.setRecordingEnabled(value);
+  Future<void> setSessionRecordingEnabled(bool value) =>
+      SessionPrefs.setRecordingEnabled(value);
 
   Future<String?> sessionPhaseTag() => SessionPrefs.phaseTag();
 
-  Future<void> setSessionPhaseTag(String? value) => SessionPrefs.setPhaseTag(value);
+  Future<void> setSessionPhaseTag(String? value) =>
+      SessionPrefs.setPhaseTag(value);
 
   Future<void> confirmPlanDraft() async {
     await api.confirmPlanDraft();
@@ -1309,7 +1536,8 @@ class AppState extends ChangeNotifier {
             'No plan suggestions right now. Try a routine chip above or add a task first.';
       }
     } catch (e) {
-      suggestDayNotice = 'Could not suggest a plan. Check your connection and try again.';
+      suggestDayNotice =
+          'Could not suggest a plan. Check your connection and try again.';
     } finally {
       loading = false;
       notifyListeners();

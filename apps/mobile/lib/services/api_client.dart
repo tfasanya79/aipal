@@ -14,47 +14,87 @@ class ApiClient {
   final String? token;
 
   Map<String, String> get _headers => {
-        'Content-Type': 'application/json',
-        if (token != null) 'Authorization': 'Bearer $token',
-      };
+    'Content-Type': 'application/json',
+    if (token != null) 'Authorization': 'Bearer $token',
+  };
 
-  Future<http.Response> _get(Uri uri) =>
-      http.get(uri, headers: _headers).timeout(_timeout);
+  Future<http.Response> _get(Uri uri, {Duration timeout = _timeout}) =>
+      http.get(uri, headers: _headers).timeout(timeout);
 
-  Future<http.Response> _post(Uri uri, {Object? body}) =>
-      http.post(uri, headers: _headers, body: body).timeout(_timeout);
+  Future<http.Response> _post(
+    Uri uri, {
+    Object? body,
+    Duration timeout = _timeout,
+  }) => http.post(uri, headers: _headers, body: body).timeout(timeout);
 
-  Future<http.Response> _put(Uri uri, {Object? body}) =>
-      http.put(uri, headers: _headers, body: body).timeout(_timeout);
+  Future<http.Response> _put(
+    Uri uri, {
+    Object? body,
+    Duration timeout = _timeout,
+  }) => http.put(uri, headers: _headers, body: body).timeout(timeout);
 
-  Future<http.Response> _patch(Uri uri, {Object? body}) =>
-      http.patch(uri, headers: _headers, body: body).timeout(_timeout);
+  Future<http.Response> _patch(
+    Uri uri, {
+    Object? body,
+    Duration timeout = _timeout,
+  }) => http.patch(uri, headers: _headers, body: body).timeout(timeout);
 
-  Future<Map<String, dynamic>> register(String email) async {
-    final r = await _post(
-      Uri.parse('${AppConfig.apiBase}/auth/register'),
-      body: jsonEncode({'email': email}),
+  http.Response _requireSuccess(http.Response response, String op) {
+    if (response.statusCode >= 400) {
+      throw Exception('$op failed (${response.statusCode}): ${response.body}');
+    }
+    return response;
+  }
+
+  Future<Map<String, dynamic>> register(
+    String email, {
+    Duration timeout = _timeout,
+  }) async {
+    final r = _requireSuccess(
+      await _post(
+        Uri.parse('${AppConfig.apiBase}/auth/register'),
+        body: jsonEncode({'email': email}),
+        timeout: timeout,
+      ),
+      'register',
     );
     return jsonDecode(r.body) as Map<String, dynamic>;
   }
 
-  Future<Map<String, dynamic>> verify(String magicToken) async {
-    final r = await _post(
-      Uri.parse('${AppConfig.apiBase}/auth/verify'),
-      body: jsonEncode({'token': magicToken}),
+  Future<Map<String, dynamic>> verify(
+    String magicToken, {
+    Duration timeout = _timeout,
+  }) async {
+    final r = _requireSuccess(
+      await _post(
+        Uri.parse('${AppConfig.apiBase}/auth/verify'),
+        body: jsonEncode({'token': magicToken}),
+        timeout: timeout,
+      ),
+      'verify',
     );
     return jsonDecode(r.body) as Map<String, dynamic>;
   }
 
-  Future<Map<String, dynamic>> getProfile() async {
-    final r = await _get(Uri.parse('${AppConfig.apiBase}/profile'));
+  Future<Map<String, dynamic>> getProfile({Duration timeout = _timeout}) async {
+    final r = _requireSuccess(
+      await _get(Uri.parse('${AppConfig.apiBase}/profile'), timeout: timeout),
+      'getProfile',
+    );
     return jsonDecode(r.body) as Map<String, dynamic>;
   }
 
-  Future<Map<String, dynamic>> updateProfile(Map<String, dynamic> body) async {
-    final r = await _put(
-      Uri.parse('${AppConfig.apiBase}/profile'),
-      body: jsonEncode(body),
+  Future<Map<String, dynamic>> updateProfile(
+    Map<String, dynamic> body, {
+    Duration timeout = _timeout,
+  }) async {
+    final r = _requireSuccess(
+      await _put(
+        Uri.parse('${AppConfig.apiBase}/profile'),
+        body: jsonEncode(body),
+        timeout: timeout,
+      ),
+      'updateProfile',
     );
     return jsonDecode(r.body) as Map<String, dynamic>;
   }
@@ -72,7 +112,11 @@ class ApiClient {
     return jsonDecode(r.body) as Map<String, dynamic>;
   }
 
-  Future<Map<String, dynamic>> patchTask(int id, String status, {Map<String, dynamic>? extra}) async {
+  Future<Map<String, dynamic>> patchTask(
+    int id,
+    String status, {
+    Map<String, dynamic>? extra,
+  }) async {
     final body = <String, dynamic>{'status': status, ...?extra};
     final r = await _patch(
       Uri.parse('${AppConfig.apiBase}/tasks/$id'),
@@ -81,7 +125,10 @@ class ApiClient {
     return jsonDecode(r.body) as Map<String, dynamic>;
   }
 
-  Future<Map<String, dynamic>> updateTask(int id, Map<String, dynamic> fields) async {
+  Future<Map<String, dynamic>> updateTask(
+    int id,
+    Map<String, dynamic> fields,
+  ) async {
     final r = await _patch(
       Uri.parse('${AppConfig.apiBase}/tasks/$id'),
       body: jsonEncode(fields),
@@ -102,13 +149,16 @@ class ApiClient {
   }
 
   Future<List<dynamic>> breakdownTask(int id) async {
-    final r = await _post(Uri.parse('${AppConfig.apiBase}/tasks/$id/breakdown'));
+    final r = await _post(
+      Uri.parse('${AppConfig.apiBase}/tasks/$id/breakdown'),
+    );
     return jsonDecode(r.body) as List<dynamic>;
   }
 
   Future<int> deferOpenTasks() async {
     final r = await _post(Uri.parse('${AppConfig.apiBase}/tasks/defer-open'));
-    return (jsonDecode(r.body) as Map<String, dynamic>)['deferred'] as int? ?? 0;
+    return (jsonDecode(r.body) as Map<String, dynamic>)['deferred'] as int? ??
+        0;
   }
 
   Future<Map<String, dynamic>> taskSummary() async {
@@ -117,19 +167,29 @@ class ApiClient {
   }
 
   Future<Map<String, dynamic>> morningPayload() async {
-    final r = await _get(Uri.parse('${AppConfig.apiBase}/daily/morning-payload'));
+    final r = await _get(
+      Uri.parse('${AppConfig.apiBase}/daily/morning-payload'),
+    );
     return jsonDecode(r.body) as Map<String, dynamic>;
   }
 
   Future<Map<String, dynamic>> eveningPayload() async {
-    final r = await _get(Uri.parse('${AppConfig.apiBase}/daily/evening-payload'));
+    final r = await _get(
+      Uri.parse('${AppConfig.apiBase}/daily/evening-payload'),
+    );
     return jsonDecode(r.body) as Map<String, dynamic>;
   }
 
-  Future<Map<String, dynamic>> textTurn(String text, {String? sessionId}) async {
+  Future<Map<String, dynamic>> textTurn(
+    String text, {
+    String? sessionId,
+  }) async {
     final r = await _post(
       Uri.parse('${AppConfig.apiBase}/turn/text'),
-      body: jsonEncode({'text': text, if (sessionId != null) 'session_id': sessionId}),
+      body: jsonEncode({
+        'text': text,
+        if (sessionId != null) 'session_id': sessionId,
+      }),
     );
     return jsonDecode(r.body) as Map<String, dynamic>;
   }
@@ -148,14 +208,18 @@ class ApiClient {
 
   Future<Map<String, dynamic>?> fetchPlanDraft() async {
     final r = await _get(Uri.parse('${AppConfig.apiBase}/tasks/plan-draft'));
-    if (r.statusCode == 200 && r.body.trim().isNotEmpty && r.body.trim() != 'null') {
+    if (r.statusCode == 200 &&
+        r.body.trim().isNotEmpty &&
+        r.body.trim() != 'null') {
       return jsonDecode(r.body) as Map<String, dynamic>;
     }
     return null;
   }
 
   Future<List<dynamic>> confirmPlanDraft() async {
-    final r = await _post(Uri.parse('${AppConfig.apiBase}/tasks/plan-draft/confirm'));
+    final r = await _post(
+      Uri.parse('${AppConfig.apiBase}/tasks/plan-draft/confirm'),
+    );
     final body = jsonDecode(r.body) as Map<String, dynamic>;
     return (body['created'] as List?) ?? [];
   }
@@ -173,22 +237,27 @@ class ApiClient {
     if (inLive) params['in_live'] = 'true';
     if (wakeEnabled) params['wake_enabled'] = 'true';
     if (showWakeIntro) params['show_wake_intro'] = 'true';
-    final uri = Uri.parse('${AppConfig.apiBase}/daily/live-greeting').replace(
-      queryParameters: params.isEmpty ? null : params,
-    );
+    final uri = Uri.parse(
+      '${AppConfig.apiBase}/daily/live-greeting',
+    ).replace(queryParameters: params.isEmpty ? null : params);
     final r = await _get(uri);
     return jsonDecode(r.body) as Map<String, dynamic>;
   }
 
   Future<Map<String, dynamic>> checkinPayload() async {
-    final r = await _get(Uri.parse('${AppConfig.apiBase}/daily/checkin-payload'));
+    final r = await _get(
+      Uri.parse('${AppConfig.apiBase}/daily/checkin-payload'),
+    );
     return jsonDecode(r.body) as Map<String, dynamic>;
   }
 
-  Future<Map<String, dynamic>> taskNudge({required int taskId, int minutes = 12}) async {
-    final uri = Uri.parse('${AppConfig.apiBase}/daily/task-nudge').replace(
-      queryParameters: {'task_id': '$taskId', 'minutes': '$minutes'},
-    );
+  Future<Map<String, dynamic>> taskNudge({
+    required int taskId,
+    int minutes = 12,
+  }) async {
+    final uri = Uri.parse(
+      '${AppConfig.apiBase}/daily/task-nudge',
+    ).replace(queryParameters: {'task_id': '$taskId', 'minutes': '$minutes'});
     final r = await _get(uri);
     return jsonDecode(r.body) as Map<String, dynamic>;
   }
@@ -206,12 +275,17 @@ class ApiClient {
     String filename = 'turn.m4a',
     String? sessionId,
   }) async {
-    final req = http.MultipartRequest('POST', Uri.parse('${AppConfig.apiBase}/turn/audio'));
+    final req = http.MultipartRequest(
+      'POST',
+      Uri.parse('${AppConfig.apiBase}/turn/audio'),
+    );
     if (token != null) req.headers['Authorization'] = 'Bearer $token';
     if (sessionId != null && sessionId.isNotEmpty) {
       req.fields['session_id'] = sessionId;
     }
-    req.files.add(http.MultipartFile.fromBytes('file', bytes, filename: filename));
+    req.files.add(
+      http.MultipartFile.fromBytes('file', bytes, filename: filename),
+    );
     final streamed = await req.send().timeout(_audioTurnTimeout);
     final body = await streamed.stream.bytesToString();
     if (streamed.statusCode >= 400) {
@@ -257,12 +331,16 @@ class ApiClient {
   }
 
   Future<List<dynamic>> recentSessions({int limit = 5}) async {
-    final r = await _get(Uri.parse('${AppConfig.apiBase}/sessions/recent?limit=$limit'));
+    final r = await _get(
+      Uri.parse('${AppConfig.apiBase}/sessions/recent?limit=$limit'),
+    );
     return jsonDecode(r.body) as List<dynamic>;
   }
 
   Future<Map<String, dynamic>> exportSession(String sessionId) async {
-    final r = await _get(Uri.parse('${AppConfig.apiBase}/sessions/$sessionId/export'));
+    final r = await _get(
+      Uri.parse('${AppConfig.apiBase}/sessions/$sessionId/export'),
+    );
     if (r.statusCode >= 400) {
       throw Exception('Export failed (${r.statusCode}): ${r.body}');
     }
@@ -302,15 +380,19 @@ class ApiClient {
   }
 
   Future<Map<String, dynamic>> getWeeklySummary() async {
-    final r = await _get(Uri.parse('${AppConfig.apiBase}/daily/weekly-summary'));
+    final r = await _get(
+      Uri.parse('${AppConfig.apiBase}/daily/weekly-summary'),
+    );
     if (r.statusCode != 200) throw Exception('weekly summary ${r.statusCode}');
     return jsonDecode(r.body) as Map<String, dynamic>;
   }
 
   Future<bool> sendWeeklySummary() async {
-    final r = await _post(Uri.parse('${AppConfig.apiBase}/daily/weekly-summary/send'))
-        .timeout(const Duration(seconds: 20));
+    final r = await _post(
+      Uri.parse('${AppConfig.apiBase}/daily/weekly-summary/send'),
+    ).timeout(const Duration(seconds: 20));
     if (r.statusCode != 200) return false;
-    return (jsonDecode(r.body) as Map<String, dynamic>)['sent'] as bool? ?? false;
+    return (jsonDecode(r.body) as Map<String, dynamic>)['sent'] as bool? ??
+        false;
   }
 }

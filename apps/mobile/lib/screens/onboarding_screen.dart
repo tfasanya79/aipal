@@ -25,6 +25,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
   final _about = TextEditingController();
   int _step = 0;
   String? _error;
+  bool _submitting = false;
 
   @override
   void initState() {
@@ -32,39 +33,80 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
     if (widget.continueProfile) _step = 1;
   }
 
-  Future<void> _handleSocialAuth(Future<Map<String, dynamic>?> Function() signIn) async {
+  Future<void> _handleSocialAuth(
+    Future<Map<String, dynamic>?> Function() signIn,
+  ) async {
     final state = context.read<AppState>();
     try {
       final result = await signIn();
       if (result == null) return;
       await state.setTokenFromSocialAuth(result);
       if (!mounted) return;
-      Navigator.of(context).pushReplacement(MaterialPageRoute(builder: (_) => const HomeShell()));
+      Navigator.of(
+        context,
+      ).pushReplacement(MaterialPageRoute(builder: (_) => const HomeShell()));
     } catch (e) {
       setState(() => _error = e.toString());
     }
   }
 
   Future<void> _finish() async {
+    if (_submitting) return;
     final state = context.read<AppState>();
+    setState(() {
+      _error = null;
+      _submitting = true;
+    });
     try {
-      if (!widget.continueProfile) {
-        await state.login(_email.text.trim());
-      }
-      await state.updateProfile({
-        'wake_name': _wakeName.text.trim().isEmpty ? 'friend' : _wakeName.text.trim(),
+      final profilePayload = {
+        'wake_name': _wakeName.text.trim().isEmpty
+            ? 'friend'
+            : _wakeName.text.trim(),
         'display_name': _wakeName.text.trim(),
         'about_me': _about.text.trim(),
         'timezone': await deviceIanaTimezone(),
         'morning_brief_at': '08:00',
         'evening_recap_at': '20:00',
-      });
-      await NotificationService.instance.scheduleMorningBrief(hour: 8, minute: 0);
-      await NotificationService.instance.scheduleEveningRecap(hour: 20, minute: 0);
+      };
+      final result = await state.completeOnboarding(
+        continueProfile: widget.continueProfile,
+        email: _email.text.trim(),
+        profileData: profilePayload,
+      );
       if (!mounted) return;
-      Navigator.of(context).pushReplacement(MaterialPageRoute(builder: (_) => const HomeShell()));
-    } catch (e) {
-      setState(() => _error = e.toString());
+      if (!result.proceedToHome) {
+        setState(() {
+          _error =
+              result.errorMessage ??
+              'Could not finish setup right now. Please try again.';
+        });
+        return;
+      }
+      try {
+        await NotificationService.instance.scheduleMorningBrief(
+          hour: 8,
+          minute: 0,
+        );
+        await NotificationService.instance.scheduleEveningRecap(
+          hour: 20,
+          minute: 0,
+        );
+      } catch (_) {
+        // Notifications are optional at onboarding; don't block entry.
+      }
+      if (!mounted) return;
+      Navigator.of(
+        context,
+      ).pushReplacement(MaterialPageRoute(builder: (_) => const HomeShell()));
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _error = 'Could not finish setup right now. Please try again.';
+      });
+    } finally {
+      if (mounted) {
+        setState(() => _submitting = false);
+      }
     }
   }
 
@@ -91,19 +133,30 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
               const SizedBox(height: 8),
               Text(
                 'Not a substitute for emergency or professional care.',
-                style: TextStyle(color: Colors.white.withValues(alpha: 0.6), fontSize: 13),
+                style: TextStyle(
+                  color: Colors.white.withValues(alpha: 0.6),
+                  fontSize: 13,
+                ),
               ),
               const SizedBox(height: 32),
               if (_step == 0 && !widget.continueProfile) ...[
                 ElevatedButton.icon(
-                  onPressed: () => _handleSocialAuth(() => SocialAuthService.signInWithGoogle(null)),
+                  onPressed: _submitting
+                      ? null
+                      : () => _handleSocialAuth(
+                          () => SocialAuthService.signInWithGoogle(null),
+                        ),
                   icon: const Icon(Icons.login),
                   label: const Text('Continue with Google'),
                 ),
                 if (Platform.isIOS) ...[
                   const SizedBox(height: 8),
                   OutlinedButton.icon(
-                    onPressed: () => _handleSocialAuth(() => SocialAuthService.signInWithApple(null)),
+                    onPressed: _submitting
+                        ? null
+                        : () => _handleSocialAuth(
+                            () => SocialAuthService.signInWithApple(null),
+                          ),
                     icon: const Icon(Icons.apple),
                     label: const Text('Continue with Apple'),
                   ),
@@ -114,7 +167,12 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                     const Expanded(child: Divider()),
                     Padding(
                       padding: const EdgeInsets.symmetric(horizontal: 8),
-                      child: Text('or', style: TextStyle(color: Colors.white.withValues(alpha: 0.5))),
+                      child: Text(
+                        'or',
+                        style: TextStyle(
+                          color: Colors.white.withValues(alpha: 0.5),
+                        ),
+                      ),
                     ),
                     const Expanded(child: Divider()),
                   ],
@@ -122,19 +180,28 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                 const SizedBox(height: 16),
                 TextField(
                   controller: _email,
+                  enabled: !_submitting,
                   keyboardType: TextInputType.emailAddress,
-                  decoration: const InputDecoration(labelText: 'Email for magic link'),
+                  decoration: const InputDecoration(
+                    labelText: 'Email for magic link',
+                  ),
                 ),
               ] else ...[
                 TextField(
                   controller: _wakeName,
-                  decoration: const InputDecoration(labelText: 'What should I call you?'),
+                  enabled: !_submitting,
+                  decoration: const InputDecoration(
+                    labelText: 'What should I call you?',
+                  ),
                 ),
                 const SizedBox(height: 16),
                 TextField(
                   controller: _about,
+                  enabled: !_submitting,
                   maxLines: 3,
-                  decoration: const InputDecoration(labelText: 'A bit about yourself (optional)'),
+                  decoration: const InputDecoration(
+                    labelText: 'A bit about yourself (optional)',
+                  ),
                 ),
               ],
               if (_error != null) ...[
@@ -143,22 +210,36 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
               ],
               const Spacer(),
               FilledButton(
-                onPressed: () {
-                  if (_step == 0 && !widget.continueProfile) {
-                    final email = _email.text.trim();
-                    if (email.isEmpty || !email.contains('@')) {
-                      setState(() => _error = 'Enter a valid email address');
-                      return;
-                    }
-                    setState(() {
-                      _error = null;
-                      _step = 1;
-                    });
-                  } else {
-                    _finish();
-                  }
-                },
-                child: Text(_step == 0 && !widget.continueProfile ? 'Continue' : 'Start with AiPal'),
+                onPressed: _submitting
+                    ? null
+                    : () {
+                        if (_step == 0 && !widget.continueProfile) {
+                          final email = _email.text.trim();
+                          if (email.isEmpty || !email.contains('@')) {
+                            setState(
+                              () => _error = 'Enter a valid email address',
+                            );
+                            return;
+                          }
+                          setState(() {
+                            _error = null;
+                            _step = 1;
+                          });
+                        } else {
+                          _finish();
+                        }
+                      },
+                child: _submitting
+                    ? const SizedBox(
+                        height: 20,
+                        width: 20,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : Text(
+                        _step == 0 && !widget.continueProfile
+                            ? 'Continue'
+                            : 'Start with AiPal',
+                      ),
               ),
             ],
           ),
