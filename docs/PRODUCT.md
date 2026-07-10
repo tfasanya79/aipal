@@ -50,6 +50,7 @@
 - **Calendar/location sync observability** — Settings now shows sync outcome status and offers explicit retry actions for calendar and location
 - **Crash stabilization mode (Android)** — wake listener runs FGS-only while wake is enabled, with calibration pause/resume safety gate to prevent dual OpenWakeWord engine races
 - **Voice reliability foundation (Phase C5.3)** — introduced typed `VoiceState` + `VoiceOrchestrator` transition ledger in mobile AppState with structured `voice_state_transition` diagnostics and unit tests (behavior-preserving first increment)
+- **Voice mic ownership + diagnostics (Phase C5.3)** — added shared `MicrophoneManager` ownership guard across wake/listen/enrollment flows and a companion diagnostics overlay (long-press status chip) showing voice state transitions + mic owner
 
 ---
 

@@ -6,13 +6,19 @@ import 'package:open_wake_word/open_wake_word.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:record/record.dart';
 
+import 'voice/microphone_manager.dart';
+import 'voice/microphone_owner.dart';
+
 /// Shared OpenWakeWord pipeline for foreground and background isolates.
 class WakeWordEngine {
   WakeWordEngine({
     required this.onWake,
     bool Function()? shouldSuppress,
     String modelVersion = '0.1',
-  }) : _shouldSuppress = shouldSuppress, _modelVersion = modelVersion;
+    MicrophoneManager? microphoneManager,
+  }) : _shouldSuppress = shouldSuppress,
+       _modelVersion = modelVersion,
+       _microphoneManager = microphoneManager ?? MicrophoneManager.instance;
 
   final void Function() onWake;
   bool Function()? _shouldSuppress;
@@ -20,8 +26,10 @@ class WakeWordEngine {
 
   static const wakePhrase = 'Hi Pal';
   static const pollMs = 100;
-  static const activationThreshold = 0.05; // lowered from 0.28; model trained on TTS, real speech scores much lower
-  static const activationThresholdV2 = 0.04; // slightly tighter for v0.2 model (improved accuracy)
+  static const activationThreshold =
+      0.05; // lowered from 0.28; model trained on TTS, real speech scores much lower
+  static const activationThresholdV2 =
+      0.04; // slightly tighter for v0.2 model (improved accuracy)
   static const _defaultWarmupMs = 1500; // reduced from 3000
   static String? lastInitError;
 
@@ -30,9 +38,11 @@ class WakeWordEngine {
     String hypothesisId,
     String message,
     Map<String, dynamic> data,
-  )? agentDebug;
+  )?
+  agentDebug;
 
   final AudioRecorder _recorder = AudioRecorder();
+  final MicrophoneManager _microphoneManager;
   StreamSubscription<Uint8List>? _audioSub;
   Timer? _pollTimer;
   bool _initialized = false;
@@ -55,8 +65,7 @@ class WakeWordEngine {
 
   void setSuppressed(bool value) => _suppressed = value;
 
-  bool _isSuppressed() =>
-      _suppressed || (_shouldSuppress?.call() ?? false);
+  bool _isSuppressed() => _suppressed || (_shouldSuppress?.call() ?? false);
 
   Future<bool> ensureMicPermission() async {
     final status = await Permission.microphone.request();
@@ -95,7 +104,10 @@ class WakeWordEngine {
         } else if (_effectiveThreshold == activationThresholdV2) {
           _effectiveThreshold = activationThreshold;
         }
-        developer.log('WakeWordEngine initialized with model v$version', name: 'aipal.wake');
+        developer.log(
+          'WakeWordEngine initialized with model v$version',
+          name: 'aipal.wake',
+        );
         return true;
       }
       developer.log(
@@ -129,11 +141,16 @@ class WakeWordEngine {
       return true;
     } catch (e, st) {
       lastInitError = '${e.toString()} (model v$version)';
-      developer.log('WakeWordEngine init failed for v$version', name: 'aipal.wake', error: e, stackTrace: st);
+      developer.log(
+        'WakeWordEngine init failed for v$version',
+        name: 'aipal.wake',
+        error: e,
+        stackTrace: st,
+      );
       return false;
     }
   }
-  
+
   /// Switch to a different model version (0.1 or 0.2).
   /// If v0.2 is requested but unavailable, init() will transparently
   /// fall back to v0.1 and update [_modelVersion] accordingly.
@@ -177,20 +194,47 @@ class WakeWordEngine {
       return;
     }
 
-    final stream = await _recorder.startStream(const RecordConfig(
-      encoder: AudioEncoder.pcm16bits,
-      sampleRate: 16000,
-      numChannels: 1,
-    ));
+    final acquired = await _microphoneManager.acquire(
+      MicrophoneOwner.wakeWordEngine,
+    );
+    if (!acquired) {
+      lastInitError =
+          'Microphone is busy by ${_microphoneManager.currentOwnerLabel}';
+      agentDebug?.call('H4', 'mic_busy', {
+        'owner': _microphoneManager.currentOwnerLabel,
+      });
+      return;
+    }
+
+    Stream<Uint8List> stream;
+    try {
+      stream = await _recorder.startStream(
+        const RecordConfig(
+          encoder: AudioEncoder.pcm16bits,
+          sampleRate: 16000,
+          numChannels: 1,
+        ),
+      );
+    } catch (e) {
+      _microphoneManager.release(MicrophoneOwner.wakeWordEngine);
+      lastInitError = 'Failed to start wake microphone stream: $e';
+      return;
+    }
 
     _audioSub = stream.listen(_onPcm);
-    _pollTimer ??=
-        Timer.periodic(const Duration(milliseconds: pollMs), (_) => _pollActivation());
+    _pollTimer ??= Timer.periodic(
+      const Duration(milliseconds: pollMs),
+      (_) => _pollActivation(),
+    );
     _listening = true;
     _pollCount = 0;
     _maxProbSinceSample = 0;
     _micStartedAt = DateTime.now();
-    agentDebug?.call('H3', 'mic_stream_started', {'listening': true, 'warmupMs': _defaultWarmupMs, 'threshold': _effectiveThreshold});
+    agentDebug?.call('H3', 'mic_stream_started', {
+      'listening': true,
+      'warmupMs': _defaultWarmupMs,
+      'threshold': _effectiveThreshold,
+    });
   }
 
   Future<void> stop() async {
@@ -200,6 +244,7 @@ class WakeWordEngine {
     if (await _recorder.isRecording()) {
       await _recorder.stop();
     }
+    _microphoneManager.release(MicrophoneOwner.wakeWordEngine);
   }
 
   Future<void> dispose() async {
@@ -247,7 +292,10 @@ class WakeWordEngine {
     }
     if (OpenWakeWord.isActivated() || prob >= _effectiveThreshold) {
       _cooldown = true;
-      agentDebug?.call('H3', 'wake_threshold_hit', {'prob': prob, 'threshold': _effectiveThreshold});
+      agentDebug?.call('H3', 'wake_threshold_hit', {
+        'prob': prob,
+        'threshold': _effectiveThreshold,
+      });
       onWake();
       Future.delayed(const Duration(seconds: 2), () => _cooldown = false);
     }

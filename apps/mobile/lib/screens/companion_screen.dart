@@ -22,6 +22,7 @@ class _CompanionScreenState extends State<CompanionScreen> {
   Timer? _thinkingTimer;
   bool _showStillThinking = false;
   LiveState? _lastLiveState;
+  bool _showDiagnostics = false;
 
   @override
   void dispose() {
@@ -66,47 +67,118 @@ class _CompanionScreenState extends State<CompanionScreen> {
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
                   const AiPalBrandRow(),
-                  Chip(
-                    label: Text(label),
-                    backgroundColor: live == LiveState.resting
-                        ? Colors.white12
-                        : Theme.of(context).colorScheme.primary.withValues(alpha: 0.25),
+                  GestureDetector(
+                    onLongPress: () =>
+                        setState(() => _showDiagnostics = !_showDiagnostics),
+                    child: Chip(
+                      label: Text(label),
+                      backgroundColor: live == LiveState.resting
+                          ? Colors.white12
+                          : Theme.of(
+                              context,
+                            ).colorScheme.primary.withValues(alpha: 0.25),
+                    ),
                   ),
                 ],
               ),
+              if (_showDiagnostics)
+                Container(
+                  width: double.infinity,
+                  margin: const EdgeInsets.only(top: 10),
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(
+                    color: Colors.white.withValues(alpha: 0.06),
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(
+                      color: Colors.white.withValues(alpha: 0.16),
+                    ),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Diagnostics (long-press status chip to hide)',
+                        style: TextStyle(
+                          fontSize: 11,
+                          fontWeight: FontWeight.w600,
+                          color: Colors.white.withValues(alpha: 0.8),
+                        ),
+                      ),
+                      const SizedBox(height: 6),
+                      Text(
+                        'voiceState=${state.voiceState.name} | micOwner=${state.microphoneOwner} | wakeListening=${state.wakeWordListening}',
+                        style: TextStyle(
+                          fontSize: 11,
+                          color: Colors.white.withValues(alpha: 0.72),
+                        ),
+                      ),
+                      const SizedBox(height: 6),
+                      ...state.voiceTransitions.reversed
+                          .take(4)
+                          .map(
+                            (t) => Text(
+                              '${t.event.name}: ${t.from.name} -> ${t.to.name} (${t.reason})',
+                              style: TextStyle(
+                                fontSize: 10,
+                                color: Colors.white.withValues(alpha: 0.62),
+                              ),
+                            ),
+                          ),
+                    ],
+                  ),
+                ),
               if (state.wakeWordError != null && state.wakeWordEnabled)
                 Padding(
                   padding: const EdgeInsets.only(top: 8),
                   child: Text(
                     state.wakeWordError!,
                     textAlign: TextAlign.center,
-                    style: TextStyle(fontSize: 12, color: Theme.of(context).colorScheme.error),
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: Theme.of(context).colorScheme.error,
+                    ),
                   ),
                 ),
               if (_showStillThinking)
                 Padding(
                   padding: const EdgeInsets.only(top: 10),
                   child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 16,
+                      vertical: 10,
+                    ),
                     decoration: BoxDecoration(
                       color: Colors.orange.withValues(alpha: 0.15),
                       borderRadius: BorderRadius.circular(12),
-                      border: Border.all(color: Colors.orange.withValues(alpha: 0.4)),
+                      border: Border.all(
+                        color: Colors.orange.withValues(alpha: 0.4),
+                      ),
                     ),
                     child: Row(
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
-                        const Icon(Icons.hourglass_top, size: 16, color: Colors.orange),
+                        const Icon(
+                          Icons.hourglass_top,
+                          size: 16,
+                          color: Colors.orange,
+                        ),
                         const SizedBox(width: 8),
                         const Expanded(
                           child: Text(
                             'Still thinking… tap the orb to cancel',
-                            style: TextStyle(color: Colors.orange, fontSize: 13),
+                            style: TextStyle(
+                              color: Colors.orange,
+                              fontSize: 13,
+                            ),
                           ),
                         ),
                         GestureDetector(
                           onTap: () => state.toggleLive(),
-                          child: const Icon(Icons.close, size: 18, color: Colors.orange),
+                          child: const Icon(
+                            Icons.close,
+                            size: 18,
+                            color: Colors.orange,
+                          ),
                         ),
                       ],
                     ),
@@ -122,11 +194,15 @@ class _CompanionScreenState extends State<CompanionScreen> {
                     textAlign: TextAlign.center,
                     style: TextStyle(
                       fontSize: 13,
-                      color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.85),
+                      color: Theme.of(
+                        context,
+                      ).colorScheme.primary.withValues(alpha: 0.85),
                     ),
                   ),
                 )
-              else if (state.wakeWordEnabled && !inConvo && live == LiveState.resting)
+              else if (state.wakeWordEnabled &&
+                  !inConvo &&
+                  live == LiveState.resting)
                 Padding(
                   padding: const EdgeInsets.only(top: 12),
                   child: Column(
@@ -145,7 +221,9 @@ class _CompanionScreenState extends State<CompanionScreen> {
                         icon: const Icon(Icons.refresh, size: 16),
                         label: const Text('Retry listener'),
                         style: TextButton.styleFrom(
-                          foregroundColor: Theme.of(context).colorScheme.primary,
+                          foregroundColor: Theme.of(
+                            context,
+                          ).colorScheme.primary,
                           visualDensity: VisualDensity.compact,
                         ),
                       ),
@@ -158,7 +236,10 @@ class _CompanionScreenState extends State<CompanionScreen> {
                   child: Text(
                     'Wake word works on the Android app. On web, tap the orb to go Live.',
                     textAlign: TextAlign.center,
-                    style: TextStyle(fontSize: 12, color: Colors.white.withValues(alpha: 0.55)),
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: Colors.white.withValues(alpha: 0.55),
+                    ),
                   ),
                 ),
               if (state.checkinBanner != null && live == LiveState.resting)
@@ -167,14 +248,21 @@ class _CompanionScreenState extends State<CompanionScreen> {
                   child: Text(
                     state.checkinBanner!,
                     textAlign: TextAlign.center,
-                    style: TextStyle(fontSize: 13, color: Colors.white.withValues(alpha: 0.6)),
+                    style: TextStyle(
+                      fontSize: 13,
+                      color: Colors.white.withValues(alpha: 0.6),
+                    ),
                   ),
                 ),
               if (live == LiveState.resting && state.nextOpenTask != null)
                 Padding(
                   padding: const EdgeInsets.only(top: 12),
                   child: ActionChip(
-                    avatar: Icon(Icons.arrow_forward, size: 16, color: Theme.of(context).colorScheme.primary),
+                    avatar: Icon(
+                      Icons.arrow_forward,
+                      size: 16,
+                      color: Theme.of(context).colorScheme.primary,
+                    ),
                     label: Text(
                       'Up next: ${state.nextOpenTask!['title']}',
                       overflow: TextOverflow.ellipsis,
@@ -183,10 +271,7 @@ class _CompanionScreenState extends State<CompanionScreen> {
                   ),
                 ),
               const Spacer(),
-              OrbWidget(
-                state: live,
-                onTap: () => state.toggleLive(),
-              ),
+              OrbWidget(state: live, onTap: () => state.toggleLive()),
               const SizedBox(height: 24),
               if (state.lastReply != null && inConvo)
                 Padding(
@@ -194,7 +279,10 @@ class _CompanionScreenState extends State<CompanionScreen> {
                   child: Text(
                     state.lastReply!,
                     textAlign: TextAlign.center,
-                    style: TextStyle(color: Colors.white.withValues(alpha: 0.85), height: 1.4),
+                    style: TextStyle(
+                      color: Colors.white.withValues(alpha: 0.85),
+                      height: 1.4,
+                    ),
                   ),
                 ),
               if (state.pendingPlanDraft != null)
@@ -220,16 +308,19 @@ class _CompanionScreenState extends State<CompanionScreen> {
               Text(
                 !inConvo
                     ? (state.wakeWordListening
-                        ? (defaultTargetPlatform == TargetPlatform.android
-                            ? 'Say Hi Pal anywhere or tap the orb to go Live'
-                            : 'Say Hi Pal or tap the orb to go Live')
-                        : 'Tap the orb to go Live')
+                          ? (defaultTargetPlatform == TargetPlatform.android
+                                ? 'Say Hi Pal anywhere or tap the orb to go Live'
+                                : 'Say Hi Pal or tap the orb to go Live')
+                          : 'Tap the orb to go Live')
                     : live == LiveState.listening
-                        ? 'Listening… tap orb to end · stays open for follow-ups'
-                        : live == LiveState.speaking
-                            ? 'Speaking… you can interrupt or wait'
-                            : 'Working on that…',
-                style: TextStyle(fontSize: 12, color: Colors.white.withValues(alpha: 0.5)),
+                    ? 'Listening… tap orb to end · stays open for follow-ups'
+                    : live == LiveState.speaking
+                    ? 'Speaking… you can interrupt or wait'
+                    : 'Working on that…',
+                style: TextStyle(
+                  fontSize: 12,
+                  color: Colors.white.withValues(alpha: 0.5),
+                ),
               ),
             ],
           ),

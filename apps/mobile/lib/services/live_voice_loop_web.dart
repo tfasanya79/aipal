@@ -3,6 +3,9 @@ import 'dart:async';
 import 'package:http/http.dart' as http;
 import 'package:record/record.dart';
 
+import 'voice/microphone_manager.dart';
+import 'voice/microphone_owner.dart';
+
 /// Browser Live listening with VAD (same UX as native; uses MediaRecorder via record_web).
 class LiveVoiceLoop {
   LiveVoiceLoop({
@@ -15,7 +18,8 @@ class LiveVoiceLoop {
     this.maxSegmentMs = 10000,
     this.thresholdDb = -35.0,
     this.thresholdDbSpeaking = -25.0,
-  });
+    MicrophoneManager? microphoneManager,
+  }) : _microphoneManager = microphoneManager ?? MicrophoneManager.instance;
 
   final Future<void> Function(List<int> bytes) onSegment;
   final void Function()? onSegmentRejected;
@@ -30,6 +34,7 @@ class LiveVoiceLoop {
   static const _tickMs = 120;
 
   final AudioRecorder _recorder = AudioRecorder();
+  final MicrophoneManager _microphoneManager;
   Timer? _ticker;
   bool _active = false;
   bool _inSegment = false;
@@ -48,7 +53,17 @@ class LiveVoiceLoop {
   Future<void> start() async {
     if (_active) return;
     if (!await ensureMicPermission()) {
-      throw StateError('Microphone permission denied — allow mic in browser settings');
+      throw StateError(
+        'Microphone permission denied — allow mic in browser settings',
+      );
+    }
+    final acquired = await _microphoneManager.acquire(
+      MicrophoneOwner.liveVoiceLoop,
+    );
+    if (!acquired) {
+      throw StateError(
+        'Microphone is busy by ${_microphoneManager.currentOwnerLabel}',
+      );
     }
     _active = true;
     _dynamicSilenceMs = silenceMs;
@@ -67,6 +82,7 @@ class LiveVoiceLoop {
     }
     _inSegment = false;
     _currentPath = null;
+    _microphoneManager.release(MicrophoneOwner.liveVoiceLoop);
   }
 
   Future<void> dispose() async {
@@ -111,7 +127,9 @@ class LiveVoiceLoop {
     }
 
     final amp = await _recorder.getAmplitude();
-    final threshold = (isSpeakingForVad?.call() ?? false) ? thresholdDbSpeaking : thresholdDb;
+    final threshold = (isSpeakingForVad?.call() ?? false)
+        ? thresholdDbSpeaking
+        : thresholdDb;
     final speaking = amp.current > threshold;
 
     if (speaking) {

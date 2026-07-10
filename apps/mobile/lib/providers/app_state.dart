@@ -21,6 +21,7 @@ import '../services/wake_background_service.dart';
 import '../services/wake_word_engine.dart';
 import '../services/wake_word_prefs.dart';
 import '../services/wake_word_service.dart';
+import '../services/voice/microphone_manager.dart';
 import '../services/voice/voice_orchestrator.dart';
 import '../services/voice/voice_state.dart';
 
@@ -117,6 +118,7 @@ class AppState extends ChangeNotifier {
   VoiceState get voiceState => _voiceOrchestrator.state;
   List<VoiceTransition> get voiceTransitions =>
       _voiceOrchestrator.recentTransitions;
+  String get microphoneOwner => MicrophoneManager.instance.currentOwnerLabel;
 
   void _agentDebug(
     String hypothesisId,
@@ -1531,6 +1533,11 @@ class AppState extends ChangeNotifier {
       }
     } finally {
       _processingTurn = false;
+      _setVoiceState(
+        VoiceState.listening,
+        VoiceEvent.turnProcessingFinished,
+        'voice_turn_processing_finished',
+      );
       if (_inConversation) {
         if (endAfterTurn || _consecutiveTurnTimeouts >= 2) {
           if (_consecutiveTurnTimeouts >= 2) {

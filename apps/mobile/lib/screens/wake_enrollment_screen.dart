@@ -8,6 +8,8 @@ import 'package:path_provider/path_provider.dart';
 import 'package:record/record.dart';
 
 import '../services/wake_word_prefs.dart';
+import '../services/voice/microphone_manager.dart';
+import '../services/voice/microphone_owner.dart';
 
 /// Guided in-app wake phrase enrollment and on-device threshold calibration.
 class WakeEnrollmentScreen extends StatefulWidget {
@@ -27,6 +29,7 @@ class _WakeEnrollmentScreenState extends State<WakeEnrollmentScreen> {
   bool _done = false;
   String _status = '';
   final _recorder = AudioRecorder();
+  final _microphoneManager = MicrophoneManager.instance;
   Timer? _recordTimer;
 
   // Durations per attempt
@@ -50,6 +53,7 @@ class _WakeEnrollmentScreenState extends State<WakeEnrollmentScreen> {
   @override
   void dispose() {
     _recordTimer?.cancel();
+    _microphoneManager.release(MicrophoneOwner.wakeEnrollment);
     _recorder.dispose();
     if (_owwReady) {
       try {
@@ -68,14 +72,16 @@ class _WakeEnrollmentScreenState extends State<WakeEnrollmentScreen> {
       );
       if (!_owwReady && mounted) {
         setState(() {
-          _status = 'Calibration model did not load. We will use default wake sensitivity.';
+          _status =
+              'Calibration model did not load. We will use default wake sensitivity.';
         });
       }
     } catch (_) {
       _owwReady = false;
       if (mounted) {
         setState(() {
-          _status = 'Could not load calibration model. Default wake sensitivity will be used.';
+          _status =
+              'Could not load calibration model. Default wake sensitivity will be used.';
         });
       }
     }
@@ -110,7 +116,9 @@ class _WakeEnrollmentScreenState extends State<WakeEnrollmentScreen> {
     if (sampleCount <= 0) return Int16List(0);
     final out = Int16List(sampleCount);
     for (var i = 0; i < sampleCount; i++) {
-      var sample = (bytes[start + i * 2] & 0xff) | ((bytes[start + i * 2 + 1] & 0xff) << 8);
+      var sample =
+          (bytes[start + i * 2] & 0xff) |
+          ((bytes[start + i * 2 + 1] & 0xff) << 8);
       if (sample >= 0x8000) sample -= 0x10000;
       out[i] = sample;
     }
@@ -124,6 +132,18 @@ class _WakeEnrollmentScreenState extends State<WakeEnrollmentScreen> {
       setState(() => _status = 'Microphone permission is required.');
       return;
     }
+    final acquired = await _microphoneManager.acquire(
+      MicrophoneOwner.wakeEnrollment,
+      timeout: const Duration(seconds: 1),
+    );
+    if (!acquired) {
+      setState(() {
+        _status =
+            'Microphone in use by ${_microphoneManager.currentOwnerLabel}. Stop live/wake and retry.';
+      });
+      return;
+    }
+
     final dir = await getTemporaryDirectory();
     final filePath =
         '${dir.path}/wake-${_phraseIndex + 1}-${_sampleCount + 1}-${DateTime.now().millisecondsSinceEpoch}.wav';
@@ -143,6 +163,7 @@ class _WakeEnrollmentScreenState extends State<WakeEnrollmentScreen> {
         path: filePath,
       );
     } catch (_) {
+      _microphoneManager.release(MicrophoneOwner.wakeEnrollment);
       setState(() {
         _recording = false;
         _status = 'Could not start recording. Try again.';
@@ -152,6 +173,7 @@ class _WakeEnrollmentScreenState extends State<WakeEnrollmentScreen> {
 
     _recordTimer = Timer(_recordDuration, () async {
       final finished = await _recorder.stop();
+      _microphoneManager.release(MicrophoneOwner.wakeEnrollment);
       final samplePath = finished ?? filePath;
       final score = await _scoreRecording(samplePath);
       _scoredSamples += 1;
@@ -166,7 +188,8 @@ class _WakeEnrollmentScreenState extends State<WakeEnrollmentScreen> {
         if (_sampleCount >= _samplesPerPhrase) {
           _status = '✓ "$_currentPhrase" recorded!';
         } else {
-          _status = 'Good! ${_samplesPerPhrase - _sampleCount} more for "$_currentPhrase"';
+          _status =
+              'Good! ${_samplesPerPhrase - _sampleCount} more for "$_currentPhrase"';
         }
       });
       await Future.delayed(_pauseBetween);
@@ -193,15 +216,19 @@ class _WakeEnrollmentScreenState extends State<WakeEnrollmentScreen> {
   }
 
   Future<void> _finishEnrollment() async {
-    final calibrated = (_maxCalibrationScore > 0 ? _maxCalibrationScore * 0.7 : _fallbackThreshold)
-        .clamp(0.005, 0.5);
+    final calibrated =
+        (_maxCalibrationScore > 0
+                ? _maxCalibrationScore * 0.7
+                : _fallbackThreshold)
+            .clamp(0.005, 0.5);
     _calibratedThreshold = calibrated;
     await WakeWordPrefs.setCalibratedThreshold(calibrated);
     await WakeWordPrefs.markEnrollmentDone();
     if (mounted) {
       setState(() {
         _done = true;
-        _status = 'All done! Wake threshold saved at ${calibrated.toStringAsFixed(4)}.';
+        _status =
+            'All done! Wake threshold saved at ${calibrated.toStringAsFixed(4)}.';
       });
     }
   }
@@ -247,7 +274,8 @@ class _WakeEnrollmentScreenState extends State<WakeEnrollmentScreen> {
   }
 
   Widget _buildEnrollView() {
-    final progress = (_phraseIndex * _samplesPerPhrase + _sampleCount) /
+    final progress =
+        (_phraseIndex * _samplesPerPhrase + _sampleCount) /
         (_phrases.length * _samplesPerPhrase);
 
     return Column(
@@ -277,16 +305,24 @@ class _WakeEnrollmentScreenState extends State<WakeEnrollmentScreen> {
                 backgroundColor: done
                     ? Colors.greenAccent.withValues(alpha: 0.2)
                     : active
-                        ? Theme.of(context).colorScheme.primary.withValues(alpha: 0.25)
-                        : const Color(0xFF21262D),
+                    ? Theme.of(
+                        context,
+                      ).colorScheme.primary.withValues(alpha: 0.25)
+                    : const Color(0xFF21262D),
                 side: BorderSide(
                   color: done
                       ? Colors.greenAccent
                       : active
-                          ? Theme.of(context).colorScheme.primary
-                          : Colors.white24,
+                      ? Theme.of(context).colorScheme.primary
+                      : Colors.white24,
                 ),
-                avatar: done ? const Icon(Icons.check, size: 16, color: Colors.greenAccent) : null,
+                avatar: done
+                    ? const Icon(
+                        Icons.check,
+                        size: 16,
+                        color: Colors.greenAccent,
+                      )
+                    : null,
               ),
             );
           }),
@@ -300,15 +336,19 @@ class _WakeEnrollmentScreenState extends State<WakeEnrollmentScreen> {
             decoration: BoxDecoration(
               shape: BoxShape.circle,
               color: _recording
-                  ? Theme.of(context).colorScheme.primary.withValues(alpha: 0.85)
+                  ? Theme.of(
+                      context,
+                    ).colorScheme.primary.withValues(alpha: 0.85)
                   : const Color(0xFF21262D),
               boxShadow: _recording
                   ? [
                       BoxShadow(
-                        color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.4),
+                        color: Theme.of(
+                          context,
+                        ).colorScheme.primary.withValues(alpha: 0.4),
                         blurRadius: 24,
                         spreadRadius: 4,
-                      )
+                      ),
                     ]
                   : null,
             ),
@@ -355,8 +395,8 @@ class _WakeEnrollmentScreenState extends State<WakeEnrollmentScreen> {
               _recording
                   ? 'Recording…'
                   : _sampleCount == 0
-                      ? 'Tap to say "$_currentPhrase"'
-                      : 'Tap to record again',
+                  ? 'Tap to say "$_currentPhrase"'
+                  : 'Tap to record again',
             ),
             onPressed: _recording ? null : _startSample,
           ),
