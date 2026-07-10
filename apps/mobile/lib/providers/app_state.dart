@@ -22,6 +22,7 @@ import '../services/wake_word_engine.dart';
 import '../services/wake_word_prefs.dart';
 import '../services/wake_word_service.dart';
 import '../services/voice/microphone_manager.dart';
+import '../services/voice/voice_error.dart';
 import '../services/voice/voice_orchestrator.dart';
 import '../services/voice/voice_state.dart';
 
@@ -59,6 +60,11 @@ class AppState extends ChangeNotifier {
   LiveVoiceLoop? _voiceLoop;
   final _player = AudioPlayer();
   String? lastReply;
+  // Bug #1 fix: surfaces Live-mode start/runtime failures independent of
+  // _inConversation, since the previous pattern (setting lastReply then
+  // calling _endConversation, which flips inConvo to false before the next
+  // frame) made the error text impossible to ever render.
+  String? liveError;
   String? lastTranscript;
   String? checkinBanner;
   String? suggestDayNotice;
@@ -87,6 +93,12 @@ class AppState extends ChangeNotifier {
   bool _wakePausedForCalibration = false;
   Timer? _wakeRetryTimer;
   int _wakeRetryAttempts = 0;
+  // True whenever a previous wake-listener start attempt failed (timeout or
+  // engine_failed). FlutterForegroundTask.isRunningService only reports the
+  // Android service process is alive, not that its isolate/engine actually
+  // initialized -- so retries must force a clean stop+start instead of
+  // trusting that stale flag, or every retry becomes a silent no-op.
+  bool _wakeForceRestartNeeded = false;
   Timer? _syncWakeDebounce;
   Timer? _foregroundDebounce;
   Future<void> _syncWakeChain = Future.value();
@@ -501,6 +513,7 @@ class AppState extends ChangeNotifier {
       _activeWakeRoute = null;
       _wakeRetryTimer?.cancel();
       _wakeRetryAttempts = 0;
+      _wakeForceRestartNeeded = false;
       await _stopWakeListener();
       await WakeBackgroundService.stop();
       wakeWordListening = false;
@@ -623,7 +636,9 @@ class AppState extends ChangeNotifier {
 
     _activeWakeRoute = 'fgs';
     await _stopWakeListener();
-    final running = await WakeBackgroundService.ensureRunning();
+    final running = await WakeBackgroundService.ensureRunning(
+      forceRestart: _wakeForceRestartNeeded,
+    );
     if (running) {
       _wakeRetryTimer?.cancel();
       _wakeRetryAttempts = 0;
@@ -643,6 +658,7 @@ class AppState extends ChangeNotifier {
         );
         if (!ready) {
           wakeWordListening = false;
+          _wakeForceRestartNeeded = true;
           wakeWordError =
               'Wake listener did not start. Check microphone and notification permissions, then retry.';
           _setVoiceState(
@@ -652,6 +668,7 @@ class AppState extends ChangeNotifier {
             data: {'error': wakeWordError},
           );
         } else {
+          _wakeForceRestartNeeded = false;
           _setVoiceState(
             VoiceState.wakeListening,
             VoiceEvent.wakeRouteActivated,
@@ -711,6 +728,7 @@ class AppState extends ChangeNotifier {
       );
       unawaited(handleBackgroundWake());
     } else if (event == 'engine_ready') {
+      _wakeForceRestartNeeded = false;
       _wakeEngineReadyCompleter?.complete();
       _setVoiceState(
         VoiceState.wakeListening,
@@ -735,6 +753,7 @@ class AppState extends ChangeNotifier {
       notifyListeners();
     } else if (event == 'engine_failed') {
       wakeWordListening = false;
+      _wakeForceRestartNeeded = true;
       _setVoiceState(
         VoiceState.error,
         VoiceEvent.errorDetected,
@@ -1210,8 +1229,19 @@ class AppState extends ChangeNotifier {
 
   DateTime? _lastToggleLiveAt;
 
+  void clearLiveError() {
+    if (liveError == null) return;
+    liveError = null;
+    notifyListeners();
+  }
+
   Future<void> toggleLive() async {
-    if (token == null || _toggleLiveInProgress) return;
+    if (_toggleLiveInProgress) return;
+    if (token == null) {
+      liveError = 'Please sign in again to use Live mode.';
+      notifyListeners();
+      return;
+    }
     // Gate 6: 300ms debounce — prevent rapid double-tap reopening a session.
     final now = DateTime.now();
     if (_lastToggleLiveAt != null &&
@@ -1245,6 +1275,7 @@ class AppState extends ChangeNotifier {
 
   Future<void> _startConversation() async {
     if (_inConversation) return;
+    liveError = null;
     if (_isAndroid && wakeWordEnabled) {
       WakeBackgroundService.setSuppressed(true);
     } else {
@@ -1277,7 +1308,7 @@ class AppState extends ChangeNotifier {
     );
     try {
       if (!await loop.ensureMicPermission()) {
-        lastReply = 'Microphone permission is required for Live voice mode.';
+        liveError = 'Microphone permission is required for Live voice mode.';
         notifyListeners();
         return;
       }
@@ -1308,7 +1339,10 @@ class AppState extends ChangeNotifier {
       _armConversationIdleTimer();
       notifyListeners();
     } catch (e) {
-      lastReply = e.toString();
+      liveError = VoiceError.classify(
+        e,
+        contextDetail: 'start_conversation',
+      ).userMessage;
       await _endConversation();
     }
   }

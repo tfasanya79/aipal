@@ -5,6 +5,7 @@ import 'package:record/record.dart';
 
 import 'voice/microphone_manager.dart';
 import 'voice/microphone_owner.dart';
+import 'voice/voice_configuration.dart';
 
 /// Browser Live listening with VAD (same UX as native; uses MediaRecorder via record_web).
 class LiveVoiceLoop {
@@ -15,9 +16,9 @@ class LiveVoiceLoop {
     this.shouldSuppress,
     this.isSpeakingForVad,
     this.silenceMs = 800,
-    this.maxSegmentMs = 10000,
-    this.thresholdDb = -35.0,
-    this.thresholdDbSpeaking = -25.0,
+    this.maxSegmentMs = VoiceConfiguration.vadMaxSegmentMs,
+    this.thresholdDb = VoiceConfiguration.vadThresholdDbWeb,
+    this.thresholdDbSpeaking = VoiceConfiguration.vadThresholdDbSpeakingWeb,
     MicrophoneManager? microphoneManager,
   }) : _microphoneManager = microphoneManager ?? MicrophoneManager.instance;
 
@@ -31,9 +32,8 @@ class LiveVoiceLoop {
   final double thresholdDb;
   final double thresholdDbSpeaking;
 
-  static const _tickMs = 120;
+  static const _tickMs = VoiceConfiguration.vadTickMs;
 
-  final AudioRecorder _recorder = AudioRecorder();
   final MicrophoneManager _microphoneManager;
   Timer? _ticker;
   bool _active = false;
@@ -47,7 +47,12 @@ class LiveVoiceLoop {
   bool get isActive => _active;
 
   Future<bool> ensureMicPermission() async {
-    return _recorder.hasPermission();
+    return _recorderHasPermission();
+  }
+
+  Future<bool> _recorderHasPermission() async {
+    // record_web supports hasPermission() without needing an owned recorder.
+    return AudioRecorder().hasPermission();
   }
 
   Future<void> start() async {
@@ -77,9 +82,7 @@ class LiveVoiceLoop {
     _active = false;
     _ticker?.cancel();
     _ticker = null;
-    if (await _recorder.isRecording()) {
-      await _recorder.stop();
-    }
+    await _microphoneManager.stopRecording(MicrophoneOwner.liveVoiceLoop);
     _inSegment = false;
     _currentPath = null;
     _microphoneManager.release(MicrophoneOwner.liveVoiceLoop);
@@ -87,7 +90,6 @@ class LiveVoiceLoop {
 
   Future<void> dispose() async {
     await stop();
-    await _recorder.dispose();
   }
 
   RecordConfig get _config {
@@ -101,9 +103,13 @@ class LiveVoiceLoop {
   Future<void> _startRecording() async {
     if (!_active) return;
     if (shouldSuppress?.call() ?? false) return;
-    if (await _recorder.isRecording()) return;
+    if (await _microphoneManager.isRecording()) return;
     _currentPath = 'aipal-live-${DateTime.now().millisecondsSinceEpoch}.webm';
-    await _recorder.start(_config, path: _currentPath!);
+    await _microphoneManager.start(
+      MicrophoneOwner.liveVoiceLoop,
+      _config,
+      path: _currentPath!,
+    );
     _segmentStartedAt = DateTime.now().millisecondsSinceEpoch;
     _silenceAccumMs = 0;
     _inSegment = false;
@@ -115,18 +121,18 @@ class LiveVoiceLoop {
     if (shouldSuppress?.call() ?? false) {
       _silenceAccumMs = 0;
       _inSegment = false;
-      if (await _recorder.isRecording()) {
-        await _recorder.stop();
+      if (await _microphoneManager.isRecording()) {
+        await _microphoneManager.stopRecording(MicrophoneOwner.liveVoiceLoop);
       }
       return;
     }
 
-    if (!await _recorder.isRecording()) {
+    if (!await _microphoneManager.isRecording()) {
       await _startRecording();
-      if (!await _recorder.isRecording()) return;
+      if (!await _microphoneManager.isRecording()) return;
     }
 
-    final amp = await _recorder.getAmplitude();
+    final amp = await _microphoneManager.getAmplitude();
     final threshold = (isSpeakingForVad?.call() ?? false)
         ? thresholdDbSpeaking
         : thresholdDb;
@@ -158,8 +164,10 @@ class LiveVoiceLoop {
     _silenceAccumMs = 0;
 
     String? blobUrl;
-    if (await _recorder.isRecording()) {
-      blobUrl = await _recorder.stop();
+    if (await _microphoneManager.isRecording()) {
+      blobUrl = await _microphoneManager.stopRecording(
+        MicrophoneOwner.liveVoiceLoop,
+      );
     }
     _currentPath = null;
 

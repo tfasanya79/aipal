@@ -2,7 +2,7 @@
 class WakeBackgroundService {
   static Future<void> init() async {}
 
-  static Future<bool> ensureRunning() async => false;
+  static Future<bool> ensureRunning({bool forceRestart = false}) async => false;
 
   static Future<void> stop() async {}
 

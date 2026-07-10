@@ -410,6 +410,60 @@ Paused 2026-06-18. Production Live uses half-duplex (`POST /turn/audio`). See [`
 
 ---
 
+## Round 7 (v2.6.26+115): Root-cause voice pipeline fixes
+
+Following a full re-read of the ChatGPT architecture review (13 recommendations) and
+direct source inspection (not speculation), two confirmed, code-evidenced bugs were
+fixed, plus consistent progress on the review's architecture recommendations.
+
+### Bug #1 -- Orb "Tap to go Live" looked unresponsive
+`app_state.dart`'s `_startConversation()` caught any startup failure, set an error
+message, then called `_endConversation()` -- which flips `inConversation` to `false`
+before the next frame. `companion_screen.dart` only rendered the error `if (inConvo)`,
+so the message was deterministically invisible every time Live mode failed to start.
+Fix: dedicated `liveError` field, set by the catch block using a new typed
+`VoiceError.classify()` helper, rendered unconditionally in `companion_screen.dart`
+(dismissible on tap), and a message is now shown when `toggleLive()` is called with no
+auth token.
+
+### Bug #2 -- "Retry listener" never actually recovered
+`WakeBackgroundService.ensureRunning()` returned `true` immediately whenever
+`FlutterForegroundTask.isRunningService` was already true -- without checking whether
+the isolate/engine inside the service was actually alive. Every manual "Retry
+listener" tap and the bounded auto-retry re-entered this same short-circuit, so a
+stuck-but-"running" service (e.g. after a native init failure) could never recover;
+retries were guaranteed no-ops. Fix: `ensureRunning({forceRestart})` now stops and
+restarts the service fresh whenever the caller knows a previous attempt failed;
+`AppState` tracks a `_wakeForceRestartNeeded` flag set on timeout/`engine_failed` and
+cleared on `engine_ready`, so both manual and automatic retries force a clean restart.
+
+### ChatGPT review architecture progress (this round)
+- Centralized `VoiceConfiguration` for all wake/VAD/conversation tunables (was
+  scattered across 3 files).
+- Typed `VoiceError`/`VoiceErrorCategory` classification replacing raw
+  `e.toString()` surfaced to users.
+- `MicrophoneManager` now owns the single shared `AudioRecorder` instance; wake
+  engine and both Live voice loop variants (io/web) migrated off their own
+  recorders onto it.
+- Wake activation is now frame-driven (polled from the PCM stream callback)
+  instead of a separate `Timer.periodic`.
+- Added a permanent "Copy diagnostics" action (voice state, mic owner, wake/live
+  errors, last transitions, build number) to the long-press diagnostics overlay.
+- Remaining items (orchestrator as sole authority, `AppState` domain-state split,
+  full mocked test harness, streaming segmentation) stay tracked and sequenced in
+  the session plan; not dropped, scheduled behind the higher-risk items they depend on.
+
+### Regression tests added
+- `test/providers/app_state_live_error_test.dart` -- `liveError` set on token-null
+  toggle and on a failed conversation start; proven readable even after
+  `_endConversation()` flips `inConversation` to `false`.
+- `test/services/wake_background_service_force_restart_test.dart` -- pure-logic
+  coverage of the exact force-restart decision (the previous silent-no-op
+  scenario: already-running + forceRestart now correctly stops before
+  restarting, instead of trusting the stale flag).
+
+---
+
 ## Related docs
 
 - [Wake word decision](./decisions/wake-word-engine.md)

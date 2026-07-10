@@ -8,6 +8,7 @@ import 'package:record/record.dart';
 
 import 'voice/microphone_manager.dart';
 import 'voice/microphone_owner.dart';
+import 'voice/voice_configuration.dart';
 
 /// Shared OpenWakeWord pipeline for foreground and background isolates.
 class WakeWordEngine {
@@ -25,12 +26,9 @@ class WakeWordEngine {
   String _modelVersion;
 
   static const wakePhrase = 'Hi Pal';
-  static const pollMs = 100;
-  static const activationThreshold =
-      0.05; // lowered from 0.28; model trained on TTS, real speech scores much lower
-  static const activationThresholdV2 =
-      0.04; // slightly tighter for v0.2 model (improved accuracy)
-  static const _defaultWarmupMs = 1500; // reduced from 3000
+  static const activationThreshold = VoiceConfiguration.wakeThresholdV1;
+  static const activationThresholdV2 = VoiceConfiguration.wakeThresholdV2;
+  static const _defaultWarmupMs = VoiceConfiguration.wakeWarmupMs;
   static String? lastInitError;
 
   /// Optional hook for agent debug logging (main isolate only).
@@ -41,10 +39,8 @@ class WakeWordEngine {
   )?
   agentDebug;
 
-  final AudioRecorder _recorder = AudioRecorder();
   final MicrophoneManager _microphoneManager;
   StreamSubscription<Uint8List>? _audioSub;
-  Timer? _pollTimer;
   bool _initialized = false;
   bool _listening = false;
   bool _cooldown = false;
@@ -208,7 +204,8 @@ class WakeWordEngine {
 
     Stream<Uint8List> stream;
     try {
-      stream = await _recorder.startStream(
+      stream = await _microphoneManager.startStream(
+        MicrophoneOwner.wakeWordEngine,
         const RecordConfig(
           encoder: AudioEncoder.pcm16bits,
           sampleRate: 16000,
@@ -221,11 +218,11 @@ class WakeWordEngine {
       return;
     }
 
+    // Frame-driven (not timer-polled): activation is evaluated as each PCM
+    // frame arrives from the mic stream, per the ChatGPT review's
+    // recommendation to avoid a separate drifting Timer.periodic poll when
+    // OpenWakeWord already streams frames.
     _audioSub = stream.listen(_onPcm);
-    _pollTimer ??= Timer.periodic(
-      const Duration(milliseconds: pollMs),
-      (_) => _pollActivation(),
-    );
     _listening = true;
     _pollCount = 0;
     _maxProbSinceSample = 0;
@@ -241,17 +238,12 @@ class WakeWordEngine {
     _listening = false;
     await _audioSub?.cancel();
     _audioSub = null;
-    if (await _recorder.isRecording()) {
-      await _recorder.stop();
-    }
+    await _microphoneManager.stopRecording(MicrophoneOwner.wakeWordEngine);
     _microphoneManager.release(MicrophoneOwner.wakeWordEngine);
   }
 
   Future<void> dispose() async {
-    _pollTimer?.cancel();
-    _pollTimer = null;
     await stop();
-    await _recorder.dispose();
     if (_initialized) {
       OpenWakeWord.destroy();
       _initialized = false;
@@ -267,6 +259,7 @@ class WakeWordEngine {
       int16[i] = sample;
     }
     OpenWakeWord.processAudio(int16);
+    _pollActivation();
   }
 
   bool _inWarmup() {
@@ -297,7 +290,10 @@ class WakeWordEngine {
         'threshold': _effectiveThreshold,
       });
       onWake();
-      Future.delayed(const Duration(seconds: 2), () => _cooldown = false);
+      Future.delayed(
+        const Duration(seconds: VoiceConfiguration.wakeCooldownSeconds),
+        () => _cooldown = false,
+      );
     }
   }
 }

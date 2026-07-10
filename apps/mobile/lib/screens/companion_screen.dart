@@ -2,6 +2,8 @@ import 'dart:async';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:package_info_plus/package_info_plus.dart';
 import 'package:provider/provider.dart';
 
 import '../providers/app_state.dart';
@@ -28,6 +30,37 @@ class _CompanionScreenState extends State<CompanionScreen> {
   void dispose() {
     _thinkingTimer?.cancel();
     super.dispose();
+  }
+
+  Future<void> _copyDiagnostics(AppState state) async {
+    String buildLabel = 'unknown';
+    try {
+      final info = await PackageInfo.fromPlatform();
+      buildLabel = '${info.version}+${info.buildNumber}';
+    } catch (_) {}
+    final transitions = state.voiceTransitions.reversed
+        .take(6)
+        .map(
+          (t) =>
+              '${t.event.name}: ${t.from.name} -> ${t.to.name} (${t.reason})',
+        )
+        .join('\n');
+    final text = [
+      'AiPal diagnostics ($buildLabel)',
+      'voiceState=${state.voiceState.name}',
+      'microphoneOwner=${state.microphoneOwner}',
+      'wakeWordListening=${state.wakeWordListening}',
+      'wakeWordError=${state.wakeWordError ?? "none"}',
+      'liveError=${state.liveError ?? "none"}',
+      'last transitions:',
+      transitions.isEmpty ? '(none)' : transitions,
+    ].join('\n');
+    await Clipboard.setData(ClipboardData(text: text));
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Diagnostics copied to clipboard')),
+      );
+    }
   }
 
   void _updateThinkingTimer(LiveState live, AppState state) {
@@ -124,6 +157,27 @@ class _CompanionScreenState extends State<CompanionScreen> {
                               ),
                             ),
                           ),
+                      const SizedBox(height: 6),
+                      Align(
+                        alignment: Alignment.centerLeft,
+                        child: TextButton.icon(
+                          onPressed: () => _copyDiagnostics(state),
+                          icon: const Icon(Icons.copy, size: 14),
+                          label: const Text(
+                            'Copy diagnostics',
+                            style: TextStyle(fontSize: 11),
+                          ),
+                          style: TextButton.styleFrom(
+                            foregroundColor: Colors.white.withValues(
+                              alpha: 0.8,
+                            ),
+                            visualDensity: VisualDensity.compact,
+                            padding: EdgeInsets.zero,
+                            minimumSize: const Size(0, 0),
+                            tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                          ),
+                        ),
+                      ),
                     ],
                   ),
                 ),
@@ -136,6 +190,42 @@ class _CompanionScreenState extends State<CompanionScreen> {
                     style: TextStyle(
                       fontSize: 12,
                       color: Theme.of(context).colorScheme.error,
+                    ),
+                  ),
+                ),
+              // Bug #1 fix: rendered unconditionally (not gated on inConvo)
+              // so Live-mode start/runtime failures are always visible —
+              // previously this was hidden because _endConversation() ran
+              // before the next frame and flipped inConvo to false first.
+              if (state.liveError != null)
+                Padding(
+                  padding: const EdgeInsets.only(top: 8),
+                  child: GestureDetector(
+                    onTap: () => state.clearLiveError(),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 14,
+                        vertical: 8,
+                      ),
+                      decoration: BoxDecoration(
+                        color: Theme.of(
+                          context,
+                        ).colorScheme.error.withValues(alpha: 0.12),
+                        borderRadius: BorderRadius.circular(10),
+                        border: Border.all(
+                          color: Theme.of(
+                            context,
+                          ).colorScheme.error.withValues(alpha: 0.4),
+                        ),
+                      ),
+                      child: Text(
+                        state.liveError!,
+                        textAlign: TextAlign.center,
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: Theme.of(context).colorScheme.error,
+                        ),
+                      ),
                     ),
                   ),
                 ),

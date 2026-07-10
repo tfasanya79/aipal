@@ -3,6 +3,7 @@ import 'dart:io' show Platform;
 import 'package:flutter_foreground_task/flutter_foreground_task.dart';
 import 'package:permission_handler/permission_handler.dart';
 
+import 'voice/voice_configuration.dart';
 import 'wake_foreground_handler.dart';
 
 /// Android foreground microphone service for background "Hi Pal" wake (C2).
@@ -37,18 +38,63 @@ class WakeBackgroundService {
   static Future<bool> _ensureNotificationPermission() async {
     final status = await FlutterForegroundTask.checkNotificationPermission();
     if (status == NotificationPermission.granted) return true;
-    final requested = await FlutterForegroundTask.requestNotificationPermission();
+    final requested =
+        await FlutterForegroundTask.requestNotificationPermission();
     return requested == NotificationPermission.granted;
   }
 
-  static Future<bool> ensureRunning() async {
+  /// Ensures the wake foreground service is running.
+  ///
+  /// [forceRestart] must be true whenever the caller knows a previous
+  /// listener attempt failed (e.g. "Retry listener" tap, or a timed-out
+  /// engine_ready wait). `FlutterForegroundTask.isRunningService` only
+  /// reports whether the Android service process is alive, NOT whether the
+  /// isolate/engine inside it is actually initialized and listening. A
+  /// service can be stuck "running" with a dead/uninitialized engine after a
+  /// native init failure or app-update edge case, and blindly trusting that
+  /// flag turns every retry into a silent no-op (message sent to a broken
+  /// isolate that never replies). When [forceRestart] is true we always stop
+  /// then start fresh, never short-circuiting on the stale "already running"
+  /// state.
+  /// Pure decision logic extracted from [ensureRunning] so the exact Bug #2
+  /// fix (never trust a stale "already running" flag when the caller knows
+  /// the previous attempt failed) can be unit tested without touching any
+  /// platform channel.
+  ///
+  /// Returns true when it is safe to short-circuit and report success
+  /// without touching the service at all.
+  static bool shouldTrustAlreadyRunning({
+    required bool alreadyRunning,
+    required bool forceRestart,
+  }) => alreadyRunning && !forceRestart;
+
+  /// Returns true when the existing (stuck/possibly-dead) service instance
+  /// must be stopped before starting a fresh one.
+  static bool shouldStopBeforeRestart({
+    required bool alreadyRunning,
+    required bool forceRestart,
+  }) => alreadyRunning && forceRestart;
+
+  static Future<bool> ensureRunning({bool forceRestart = false}) async {
     if (!Platform.isAndroid) return false;
     final mic = await Permission.microphone.request();
     if (!mic.isGranted) return false;
     if (!await _ensureNotificationPermission()) return false;
 
-    if (await FlutterForegroundTask.isRunningService) {
+    final alreadyRunning = await FlutterForegroundTask.isRunningService;
+    if (shouldTrustAlreadyRunning(
+      alreadyRunning: alreadyRunning,
+      forceRestart: forceRestart,
+    )) {
       return true;
+    }
+
+    if (shouldStopBeforeRestart(
+      alreadyRunning: alreadyRunning,
+      forceRestart: forceRestart,
+    )) {
+      await FlutterForegroundTask.stopService();
+      await Future.delayed(VoiceConfiguration.wakeServiceRestartSettleDelay);
     }
 
     final result = await FlutterForegroundTask.startService(

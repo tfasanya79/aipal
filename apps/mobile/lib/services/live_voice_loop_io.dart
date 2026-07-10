@@ -7,6 +7,7 @@ import 'package:record/record.dart';
 
 import 'voice/microphone_manager.dart';
 import 'voice/microphone_owner.dart';
+import 'voice/voice_configuration.dart';
 
 /// Continuous Live listening with voice-activity segmentation (ported from MVP VAD).
 class LiveVoiceLoop {
@@ -16,12 +17,12 @@ class LiveVoiceLoop {
     this.onSpeechStart,
     this.shouldSuppress,
     this.isSpeakingForVad,
-    this.silenceMs = 500,
-    this.maxSegmentMs = 10000,
+    this.silenceMs = VoiceConfiguration.vadSilenceMs,
+    this.maxSegmentMs = VoiceConfiguration.vadMaxSegmentMs,
     this.minVoicedMs = 450,
     this.minUploadBytes = 1024,
-    this.thresholdDb = -35.0,
-    this.thresholdDbSpeaking = -25.0,
+    this.thresholdDb = VoiceConfiguration.vadThresholdDbIo,
+    this.thresholdDbSpeaking = VoiceConfiguration.vadThresholdDbSpeakingIo,
     MicrophoneManager? microphoneManager,
   }) : _microphoneManager = microphoneManager ?? MicrophoneManager.instance;
 
@@ -37,9 +38,8 @@ class LiveVoiceLoop {
   final double thresholdDb;
   final double thresholdDbSpeaking;
 
-  static const _tickMs = 120;
+  static const _tickMs = VoiceConfiguration.vadTickMs;
 
-  final AudioRecorder _recorder = AudioRecorder();
   final MicrophoneManager _microphoneManager;
   Timer? _ticker;
   bool _active = false;
@@ -83,9 +83,7 @@ class LiveVoiceLoop {
     _active = false;
     _ticker?.cancel();
     _ticker = null;
-    if (await _recorder.isRecording()) {
-      await _recorder.stop();
-    }
+    await _microphoneManager.stopRecording(MicrophoneOwner.liveVoiceLoop);
     _inSegment = false;
     _currentPath = null;
     _microphoneManager.release(MicrophoneOwner.liveVoiceLoop);
@@ -93,17 +91,17 @@ class LiveVoiceLoop {
 
   Future<void> dispose() async {
     await stop();
-    await _recorder.dispose();
   }
 
   Future<void> _startRecording() async {
     if (!_active) return;
     if (shouldSuppress?.call() ?? false) return;
-    if (await _recorder.isRecording()) return;
+    if (await _microphoneManager.isRecording()) return;
     final dir = await getTemporaryDirectory();
     _currentPath =
         '${dir.path}/aipal-live-${DateTime.now().millisecondsSinceEpoch}.m4a';
-    await _recorder.start(
+    await _microphoneManager.start(
+      MicrophoneOwner.liveVoiceLoop,
       const RecordConfig(
         encoder: AudioEncoder.aacLc,
         bitRate: 128000,
@@ -123,18 +121,18 @@ class LiveVoiceLoop {
     if (shouldSuppress?.call() ?? false) {
       _silenceAccumMs = 0;
       _inSegment = false;
-      if (await _recorder.isRecording()) {
-        await _recorder.stop();
+      if (await _microphoneManager.isRecording()) {
+        await _microphoneManager.stopRecording(MicrophoneOwner.liveVoiceLoop);
       }
       return;
     }
 
-    if (!await _recorder.isRecording()) {
+    if (!await _microphoneManager.isRecording()) {
       await _startRecording();
-      if (!await _recorder.isRecording()) return;
+      if (!await _microphoneManager.isRecording()) return;
     }
 
-    final amp = await _recorder.getAmplitude();
+    final amp = await _microphoneManager.getAmplitude();
     final threshold = (isSpeakingForVad?.call() ?? false)
         ? thresholdDbSpeaking
         : thresholdDb;
@@ -168,8 +166,10 @@ class LiveVoiceLoop {
 
     final path = _currentPath;
     String? finishedPath;
-    if (await _recorder.isRecording()) {
-      finishedPath = await _recorder.stop();
+    if (await _microphoneManager.isRecording()) {
+      finishedPath = await _microphoneManager.stopRecording(
+        MicrophoneOwner.liveVoiceLoop,
+      );
     }
     finishedPath ??= path;
     _currentPath = null;
