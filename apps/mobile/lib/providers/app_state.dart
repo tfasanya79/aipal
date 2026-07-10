@@ -21,6 +21,8 @@ import '../services/wake_background_service.dart';
 import '../services/wake_word_engine.dart';
 import '../services/wake_word_prefs.dart';
 import '../services/wake_word_service.dart';
+import '../services/voice/voice_orchestrator.dart';
+import '../services/voice/voice_state.dart';
 
 class OnboardingCompletionResult {
   const OnboardingCompletionResult({
@@ -104,6 +106,7 @@ class AppState extends ChangeNotifier {
   static const _pendingOnboardingProfileKey =
       'pending_onboarding_profile_sync_v1';
   bool _pendingOnboardingProfileSyncInFlight = false;
+  final VoiceOrchestrator _voiceOrchestrator = VoiceOrchestrator();
 
   ApiClient get api => ApiClient(token);
 
@@ -111,6 +114,9 @@ class AppState extends ChangeNotifier {
 
   /// True while a bounded voice conversation session is open (multi-turn until idle timeout).
   bool get inConversation => _inConversation;
+  VoiceState get voiceState => _voiceOrchestrator.state;
+  List<VoiceTransition> get voiceTransitions =>
+      _voiceOrchestrator.recentTransitions;
 
   void _agentDebug(
     String hypothesisId,
@@ -127,6 +133,30 @@ class AppState extends ChangeNotifier {
         data: data ?? {},
       ),
     );
+  }
+
+  void _setVoiceState(
+    VoiceState next,
+    VoiceEvent event,
+    String reason, {
+    Map<String, dynamic>? data,
+  }) {
+    final changed = _voiceOrchestrator.transitionTo(
+      next,
+      event: event,
+      reason: reason,
+      sessionId: liveSession.sessionId,
+      data: data,
+    );
+    if (changed) {
+      unawaited(
+        _sessionLogger.log(
+          liveSession.sessionId ?? 'voice-state',
+          'voice_state_transition',
+          payload: _voiceOrchestrator.recentTransitions.last.toJson(),
+        ),
+      );
+    }
   }
 
   bool get _isAndroid =>
@@ -202,6 +232,11 @@ class AppState extends ChangeNotifier {
       await _loadWakePrefs();
       WakeWordEngine.agentDebug = (hypothesisId, message, data) =>
           _agentDebug(hypothesisId, 'wake_word_engine', message, data);
+      _setVoiceState(
+        VoiceState.idle,
+        VoiceEvent.appBootstrapped,
+        'finish_bootstrap',
+      );
       try {
         await syncWakeListener();
       } catch (_) {}
@@ -388,6 +423,11 @@ class AppState extends ChangeNotifier {
   Future<void> _syncWakeListenerImplBody() async {
     if (!wakeWordAvailable || token == null) {
       await _stopAllWakeListening();
+      _setVoiceState(
+        VoiceState.idle,
+        VoiceEvent.wakeRouteDeactivated,
+        'wake_unavailable_or_unauthenticated',
+      );
       notifyListeners();
       return;
     }
@@ -395,6 +435,11 @@ class AppState extends ChangeNotifier {
       await _stopAllWakeListening();
       wakeWordListening = false;
       wakeWordError = null;
+      _setVoiceState(
+        VoiceState.idle,
+        VoiceEvent.wakeRouteDeactivated,
+        'wake_paused_for_calibration',
+      );
       notifyListeners();
       return;
     }
@@ -412,6 +457,11 @@ class AppState extends ChangeNotifier {
     if (!shouldListen) {
       await _stopWakeListener();
       wakeWordListening = false;
+      _setVoiceState(
+        VoiceState.idle,
+        VoiceEvent.wakeRouteDeactivated,
+        'wake_not_required_in_current_context',
+      );
       notifyListeners();
       return;
     }
@@ -422,11 +472,25 @@ class AppState extends ChangeNotifier {
     );
     if (!await _wakeWord!.init()) {
       wakeWordListening = false;
+      _setVoiceState(
+        VoiceState.error,
+        VoiceEvent.errorDetected,
+        'wake_init_failed_non_android',
+        data: {'error': WakeWordEngine.lastInitError},
+      );
       notifyListeners();
       return;
     }
     await _wakeWord!.start();
     wakeWordListening = _wakeWord!.isListening;
+    _setVoiceState(
+      wakeWordListening ? VoiceState.wakeListening : VoiceState.error,
+      wakeWordListening
+          ? VoiceEvent.wakeRouteActivated
+          : VoiceEvent.errorDetected,
+      'non_android_wake_sync',
+      data: {'listening': wakeWordListening},
+    );
     notifyListeners();
   }
 
@@ -438,6 +502,11 @@ class AppState extends ChangeNotifier {
       await _stopWakeListener();
       await WakeBackgroundService.stop();
       wakeWordListening = false;
+      _setVoiceState(
+        VoiceState.idle,
+        VoiceEvent.wakeRouteDeactivated,
+        'wake_disabled',
+      );
       notifyListeners();
       return;
     }
@@ -470,6 +539,11 @@ class AppState extends ChangeNotifier {
         WakeBackgroundService.setSuppressed(true);
       }
       wakeWordListening = false;
+      _setVoiceState(
+        _inConversation ? VoiceState.listening : VoiceState.idle,
+        VoiceEvent.externalSync,
+        'wake_suppressed',
+      );
       notifyListeners();
       return;
     }
@@ -487,6 +561,14 @@ class AppState extends ChangeNotifier {
         }
         wakeWordListening = _wakeWord!.isListening;
         wakeWordError = wakeWordListening ? null : wakeWordError;
+        _setVoiceState(
+          wakeWordListening ? VoiceState.wakeListening : VoiceState.error,
+          wakeWordListening
+              ? VoiceEvent.wakeRouteActivated
+              : VoiceEvent.errorDetected,
+          'android_foreground_route_reuse',
+          data: {'listening': wakeWordListening},
+        );
         notifyListeners();
         return;
       }
@@ -504,6 +586,12 @@ class AppState extends ChangeNotifier {
         wakeWordListening = false;
         wakeWordError =
             WakeWordEngine.lastInitError ?? 'Wake word engine failed to start.';
+        _setVoiceState(
+          VoiceState.error,
+          VoiceEvent.errorDetected,
+          'android_foreground_wake_init_failed',
+          data: {'error': wakeWordError},
+        );
         _agentDebug('H1', 'app_state.foreground_wake', 'init_failed', {
           'error': wakeWordError,
         });
@@ -514,6 +602,14 @@ class AppState extends ChangeNotifier {
             ? null
             : (WakeWordEngine.lastInitError ?? 'Mic not available for Hi Pal.');
         _activeWakeRoute = wakeWordListening ? 'foreground' : null;
+        _setVoiceState(
+          wakeWordListening ? VoiceState.wakeListening : VoiceState.error,
+          wakeWordListening
+              ? VoiceEvent.wakeRouteActivated
+              : VoiceEvent.errorDetected,
+          'android_foreground_wake_started',
+          data: {'listening': wakeWordListening, 'error': wakeWordError},
+        );
         _agentDebug('H1', 'app_state.foreground_wake', 'started', {
           'listening': wakeWordListening,
           'error': wakeWordError,
@@ -547,12 +643,30 @@ class AppState extends ChangeNotifier {
           wakeWordListening = false;
           wakeWordError =
               'Wake listener did not start. Check microphone and notification permissions, then retry.';
+          _setVoiceState(
+            VoiceState.error,
+            VoiceEvent.errorDetected,
+            'android_fgs_engine_not_ready',
+            data: {'error': wakeWordError},
+          );
+        } else {
+          _setVoiceState(
+            VoiceState.wakeListening,
+            VoiceEvent.wakeRouteActivated,
+            'android_fgs_engine_ready',
+          );
         }
       }
     } else {
       wakeWordListening = false;
       wakeWordError =
           'Microphone or notification permission required for Hi Pal.';
+      _setVoiceState(
+        VoiceState.error,
+        VoiceEvent.errorDetected,
+        'android_fgs_permission_or_start_failure',
+        data: {'error': wakeWordError},
+      );
       if (wakeWordEnabled &&
           !_wakePausedForCalibration &&
           _wakeRetryAttempts < 2) {
@@ -596,6 +710,11 @@ class AppState extends ChangeNotifier {
       unawaited(handleBackgroundWake());
     } else if (event == 'engine_ready') {
       _wakeEngineReadyCompleter?.complete();
+      _setVoiceState(
+        VoiceState.wakeListening,
+        VoiceEvent.wakeRouteActivated,
+        'foreground_service_engine_ready',
+      );
       wakeWordListening =
           wakeWordEnabled && !_inConversation && !_blocksWakeListener();
       wakeWordError = null;
@@ -614,6 +733,12 @@ class AppState extends ChangeNotifier {
       notifyListeners();
     } else if (event == 'engine_failed') {
       wakeWordListening = false;
+      _setVoiceState(
+        VoiceState.error,
+        VoiceEvent.errorDetected,
+        'foreground_service_engine_failed',
+        data: {'error': data['error']},
+      );
       wakeWordError =
           data['error'] as String? ?? 'Wake word engine failed to start.';
       _agentDebug('H1', 'app_state._onBackgroundWakeData', 'engine_failed', {
@@ -1131,6 +1256,11 @@ class AppState extends ChangeNotifier {
       thresholdDb: -45.0,
       thresholdDbSpeaking: -32.0,
       onSpeechStart: () {
+        _setVoiceState(
+          VoiceState.recording,
+          VoiceEvent.speechDetected,
+          'vad_speech_start',
+        );
         _armConversationIdleTimer();
         if (_speaking) {
           _turnGeneration++;
@@ -1150,6 +1280,11 @@ class AppState extends ChangeNotifier {
         return;
       }
       _inConversation = true;
+      _setVoiceState(
+        VoiceState.listening,
+        VoiceEvent.conversationStarted,
+        'conversation_started',
+      );
       _consecutiveDiscards = 0;
       _consecutiveTurnTimeouts = 0;
       _softPromptShown = false;
@@ -1216,6 +1351,11 @@ class AppState extends ChangeNotifier {
     _turnGeneration++;
     _armWakeSuppress();
     _inConversation = false;
+    _setVoiceState(
+      wakeWordEnabled ? VoiceState.cooldown : VoiceState.idle,
+      VoiceEvent.conversationEnded,
+      'conversation_ended',
+    );
     _awaitingGreeting = false;
     _consecutiveDiscards = 0;
     _consecutiveTurnTimeouts = 0;
@@ -1234,6 +1374,11 @@ class AppState extends ChangeNotifier {
   Future<void> _returnToListening() async {
     if (!_inConversation) return;
     liveSession.state = LiveState.listening;
+    _setVoiceState(
+      VoiceState.listening,
+      VoiceEvent.externalSync,
+      'return_to_listening',
+    );
     final loop = _voiceLoop;
     if (loop != null && !loop.isActive) {
       await loop.start();
@@ -1301,6 +1446,11 @@ class AppState extends ChangeNotifier {
     final turnGen = ++_turnGeneration;
     _processingTurn = true;
     liveSession.state = LiveState.thinking;
+    _setVoiceState(
+      VoiceState.thinking,
+      VoiceEvent.turnProcessingStarted,
+      'voice_turn_processing_started',
+    );
     notifyListeners();
     var shouldRefreshToday = false;
     var endAfterTurn = false;
@@ -1413,6 +1563,11 @@ class AppState extends ChangeNotifier {
     if (turnGen != null && turnGen != _turnGeneration) return;
     _speaking = true;
     liveSession.state = LiveState.speaking;
+    _setVoiceState(
+      VoiceState.speaking,
+      VoiceEvent.ttsStarted,
+      'tts_playback_started',
+    );
     notifyListeners();
     final completer = Completer<void>();
     late StreamSubscription<void> sub;
@@ -1427,6 +1582,11 @@ class AppState extends ChangeNotifier {
     );
     if (turnGen != null && turnGen != _turnGeneration) return;
     _speaking = false;
+    _setVoiceState(
+      VoiceState.listening,
+      VoiceEvent.ttsFinished,
+      'tts_playback_finished',
+    );
     notifyListeners();
   }
 
