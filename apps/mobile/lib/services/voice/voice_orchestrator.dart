@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'voice_state.dart';
 
 class VoiceTransition {
@@ -33,6 +35,7 @@ class VoiceTransition {
 class VoiceOrchestrator {
   VoiceState _state = VoiceState.idle;
   final List<VoiceTransition> _recentTransitions = [];
+  final Map<String, Timer> _timeouts = {};
 
   VoiceState get state => _state;
   List<VoiceTransition> get recentTransitions =>
@@ -143,6 +146,26 @@ class VoiceOrchestrator {
     };
 
     return table[from]?.contains(to) ?? false;
+  }
+
+  void scheduleTimeout(
+    String key,
+    Duration duration,
+    void Function() callback,
+  ) {
+    cancelTimeout(key);
+    _timeouts[key] = Timer(duration, callback);
+  }
+
+  void cancelTimeout(String key) {
+    _timeouts.remove(key)?.cancel();
+  }
+
+  void cancelAllTimeouts() {
+    for (final timer in _timeouts.values) {
+      timer.cancel();
+    }
+    _timeouts.clear();
   }
 
   void _record(VoiceTransition entry) {

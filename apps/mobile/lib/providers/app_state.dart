@@ -69,7 +69,6 @@ class AppState extends ChangeNotifier {
   bool _awaitingGreeting = false;
   int _turnGeneration = 0;
   static const _conversationIdleSeconds = 18;
-  Timer? _conversationIdleTimer;
   int _consecutiveDiscards = 0;
   int _consecutiveTurnTimeouts = 0;
   bool _softPromptShown = false;
@@ -90,7 +89,6 @@ class AppState extends ChangeNotifier {
   int _wakeRetryAttempts = 0;
   Timer? _syncWakeDebounce;
   Timer? _foregroundDebounce;
-  Timer? _wakeSuppressResyncTimer;
   Future<void> _syncWakeChain = Future.value();
   bool _toggleLiveInProgress = false;
   DateTime? _wakeSuppressUntil;
@@ -332,8 +330,7 @@ class AppState extends ChangeNotifier {
       wakeWordError = null;
       wakeWordListening = false;
       _activeWakeRoute = null;
-      _wakeSuppressResyncTimer?.cancel();
-      _wakeSuppressResyncTimer = null;
+      _voiceOrchestrator.cancelTimeout('wake_suppress_resync');
     }
     _foregroundDebounce?.cancel();
     _foregroundDebounce = null;
@@ -363,12 +360,15 @@ class AppState extends ChangeNotifier {
   void _armWakeSuppress([Duration? duration]) {
     final d = duration ?? _wakeSuppressDuration;
     _wakeSuppressUntil = DateTime.now().add(d);
-    _wakeSuppressResyncTimer?.cancel();
-    _wakeSuppressResyncTimer = Timer(d + const Duration(milliseconds: 100), () {
-      if (wakeWordEnabled && token != null) {
-        unawaited(syncWakeListener());
-      }
-    });
+    _voiceOrchestrator.scheduleTimeout(
+      'wake_suppress_resync',
+      d + const Duration(milliseconds: 100),
+      () {
+        if (wakeWordEnabled && token != null) {
+          unawaited(syncWakeListener());
+        }
+      },
+    );
     _agentDebug('H4', 'app_state._armWakeSuppress', 'armed', {
       'untilMs': _wakeSuppressUntil!.millisecondsSinceEpoch,
     });
@@ -1195,14 +1195,14 @@ class AppState extends ChangeNotifier {
   }
 
   void _cancelConversationIdleTimer() {
-    _conversationIdleTimer?.cancel();
-    _conversationIdleTimer = null;
+    _voiceOrchestrator.cancelTimeout('conversation_idle');
   }
 
   void _armConversationIdleTimer() {
     if (!_inConversation) return;
     _cancelConversationIdleTimer();
-    _conversationIdleTimer = Timer(
+    _voiceOrchestrator.scheduleTimeout(
+      'conversation_idle',
       const Duration(seconds: _conversationIdleSeconds),
       () => unawaited(_endConversation()),
     );
@@ -1603,8 +1603,8 @@ class AppState extends ChangeNotifier {
     _cancelNudgeTimers();
     _dateCheckTimer?.cancel();
     _foregroundDebounce?.cancel();
-    _wakeSuppressResyncTimer?.cancel();
     _wakeRetryTimer?.cancel();
+    _voiceOrchestrator.cancelAllTimeouts();
     if (_isAndroid) {
       FlutterForegroundTask.removeTaskDataCallback(_onBackgroundWakeData);
       unawaited(WakeBackgroundService.stop());
