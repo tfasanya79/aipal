@@ -149,78 +149,61 @@ but broke wake detection entirely when shipped as the default — see below.
 
 ---
 
-## ⏳ 5 — Scheduled weekly email automation
+## ✅ 5 — Scheduled weekly email automation
 
-**Status: PENDING — needs a systemd timer configured on the VM.**
+**Status: IMPLEMENTED — internal enqueue endpoint + worker + timer are live on the VM.**
 
-**What it unlocks:** Every Sunday at ~8 PM (user's local time) AiPal automatically
-sends the weekly summary email to every user who has enabled it — without any manual action.
+**What it does:** Every Sunday at 18:00 UTC, AiPal enqueues weekly summary email jobs for users with
+`weekly_summary_enabled=True`, and the VM worker processes/sends them.
 
-The API endpoint and email template are already built. Only the cron trigger is missing.
+### Implemented backend pieces
 
-### Steps for you to do on the VM
+- `POST /api/v2/jobs/enqueue-weekly-summaries` (secured with `X-Internal-Secret`)
+- Job type: `weekly_summary_email` in `apps/api/app/modules/jobs/service.py`
+- Manual weekly send (`POST /daily/weekly-summary/send`) now marks users as opted-in
+- VM helper script: `scripts/trigger-weekly-summary.sh`
 
-SSH into the VM and run the following commands:
+### VM systemd units (already applied)
 
-**Step 5-A: Create the systemd service unit**
+```bash
+# Worker (continuous queue processor)
+/etc/systemd/system/aipal-worker.service
+
+# Weekly scheduler
+/etc/systemd/system/aipal-weekly-email.service
+/etc/systemd/system/aipal-weekly-email.timer
+```
+
+Current timer schedule:
+
+```bash
+OnCalendar=Sun *-*-* 18:00:00 UTC
+```
+
+### Verify on VM
+
 ```bash
 ssh dev@43.160.220.9
-sudo tee /etc/systemd/system/aipal-weekly-email.service > /dev/null << 'EOF'
-[Unit]
-Description=AiPal weekly summary email batch
-
-[Service]
-Type=oneshot
-User=dev
-ExecStart=/usr/bin/curl -sf -X POST http://127.0.0.1:8102/api/v2/jobs/enqueue-weekly-summaries \
-  -H "X-Internal-Secret: $AIPAL_INTERNAL_SECRET"
-EOF
+sudo systemctl is-active aipal-worker.service
+sudo systemctl is-active aipal-weekly-email.timer
+sudo systemctl list-timers --all | grep aipal-weekly-email
 ```
 
-**Step 5-B: Create the systemd timer unit**
+### Manual trigger (safe smoke check)
+
 ```bash
-sudo tee /etc/systemd/system/aipal-weekly-email.timer > /dev/null << 'EOF'
-[Unit]
-Description=Run AiPal weekly email every Sunday 8 PM UTC
-
-[Timer]
-OnCalendar=Sun *-*-* 18:00:00 UTC
-Persistent=true
-
-[Install]
-WantedBy=timers.target
-EOF
+ssh dev@43.160.220.9
+cd ~/aipal
+./scripts/trigger-weekly-summary.sh
 ```
 
-**Step 5-C: Enable and start the timer**
-```bash
-sudo systemctl daemon-reload
-sudo systemctl enable aipal-weekly-email.timer
-sudo systemctl start aipal-weekly-email.timer
-sudo systemctl list-timers | grep aipal
+Expected output:
+
+```json
+{"queued":<number>}
 ```
 
-You should see a line showing next trigger time for the timer.
-
-> **Note on internal secret:** The `/jobs/enqueue-weekly-summaries` endpoint needs
-> an internal auth header. Tell Copilot to implement this — it's a single `X-Internal-Secret`
-> header check in `config.py`. The secret value is your choice (any random string).
-
-### What to give back to Copilot
-
-When you're ready to enable this, tell Copilot:
-```
-WEEKLY_EMAIL_CRON_READY=yes
-AIPAL_INTERNAL_SECRET=<any random string you choose, e.g. 32+ char hex>
-```
-Copilot will:
-1. Add the internal secret check to the enqueue endpoint.
-2. Set the secret on the VM.
-3. Create the systemd units above automatically.
-4. Verify the timer is registered.
-
-**Or just say "set up the weekly email cron" and Copilot will handle all of it.**
-
+If `queued` is `0`, no users are currently opted-in (`weekly_summary_enabled=True`).
 ---
 
 ## ⏳ 6 — Apple Sign-In (iOS only)

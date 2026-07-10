@@ -25,6 +25,7 @@ class Settings(BaseSettings):
     apple_team_id: str = ""
     apple_client_id: str = ""
     resend_api_key: str = ""
+    aipal_internal_secret: str = ""
 
 
 @lru_cache

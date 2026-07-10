@@ -41,5 +41,9 @@ async def send_weekly_summary(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
+    if not user.weekly_summary_enabled:
+        user.weekly_summary_enabled = True
+        await db.commit()
+        await db.refresh(user)
     sent = await ws_svc.send_weekly_summary_email(db, user)
     return WeeklySendResponse(sent=sent, email=user.email)

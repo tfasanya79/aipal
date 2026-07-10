@@ -1,17 +1,20 @@
 """Durable job queue (Postgres-backed, same VM worker)."""
 
 import logging
+import uuid
 from datetime import datetime
 
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.shared.models import Job, utc_now
+from app.modules.daily import weekly_summary as weekly_svc
+from app.shared.models import Job, User, utc_now
 
 log = logging.getLogger("aipal.jobs")
 
 HANDLERS: dict[str, str] = {
     "noop": "Built-in no-op for health checks",
+    "weekly_summary_email": "Send weekly summary email to one user",
 }
 
 
@@ -78,4 +81,25 @@ async def run_job(db: AsyncSession, job: Job) -> None:
     if job.job_type == "noop":
         log.info("noop job %s ok", job.id)
         return
+
+    if job.job_type == "weekly_summary_email":
+        raw_user_id = (job.payload or {}).get("user_id")
+        if not raw_user_id:
+            raise ValueError("weekly_summary_email job missing payload.user_id")
+        try:
+            user_id = uuid.UUID(str(raw_user_id))
+        except ValueError as exc:
+            raise ValueError(f"Invalid user_id in payload: {raw_user_id}") from exc
+
+        result = await db.execute(select(User).where(User.id == user_id))
+        user = result.scalar_one_or_none()
+        if user is None:
+            log.warning("weekly_summary_email job %s skipped: user %s missing", job.id, raw_user_id)
+            return
+
+        sent = await weekly_svc.send_weekly_summary_email(db, user)
+        if not sent:
+            raise RuntimeError(f"Weekly summary send failed for user {user.id}")
+        return
+
     raise NotImplementedError(f"No handler for job_type={job.job_type}")
