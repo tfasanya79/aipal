@@ -678,7 +678,7 @@ class AppState extends ChangeNotifier {
       }
     } else {
       wakeWordListening = false;
-      wakeWordError =
+      wakeWordError = WakeBackgroundService.lastEnsureRunningError ??
           'Microphone or notification permission required for Hi Pal.';
       _setVoiceState(
         VoiceState.error,

@@ -464,6 +464,57 @@ cleared on `engine_ready`, so both manual and automatic retries force a clean re
 
 ---
 
+## Round 8 (v2.6.27+116): Wake isolate crash guard
+
+Build 115 was installed and both symptoms persisted: the wake listener still failed
+(`android_fgs_engine_not_ready`) and the app crashed repeatedly. Direct source
+inspection (not device-log speculation) found the actual root cause.
+
+### Root cause
+`WakeForegroundHandler` -- the background-isolate entry point Android runs for the
+Hi Pal listening service -- had zero try/catch anywhere (`onStart`, `onReceiveData`,
+`_startEngine`). The app's global error handlers
+(`FlutterError.onError` / `PlatformDispatcher.instance.onError`) are installed in
+`main.dart`, which never runs for this isolate; it has its own separate entry point
+(`startWakeCallback`) with no error handler of its own. Any exception thrown inside
+this isolate (most likely a permission-channel issue specific to that isolate context)
+was therefore uncaught: no `engine_ready`/`engine_failed` message was ever sent back
+(explaining the fixed 8s timeout error every time), and an uncaught isolate exception
+is consistent with the Android foreground service process dying and being relaunched
+repeatedly -- i.e. the same one defect plausibly explains both reported symptoms.
+
+### Fix
+- Every entry point in `WakeForegroundHandler` now wraps its body in try/catch and
+  is guaranteed to report `engine_failed` with the real error text back to the main
+  isolate instead of dying silently.
+- `WakeBackgroundService.ensureRunning()` (main-isolate side) now also wraps its
+  permission/service calls in try/catch, recording the real exception in a new
+  `lastEnsureRunningError` field that `AppState` surfaces instead of the generic
+  "permission required" fallback message.
+- This turns any remaining failure into an exact, diagnosable error string (visible
+  via the existing "Copy diagnostics" action) rather than a black-box crash --
+  the next fix, if still needed, can now be precise instead of another guess.
+
+### Latency investigation (no code change shipped yet)
+Traced the full voice pipeline. Client-side: VAD waits for a full silence tail
+before uploading the complete recorded segment (no streaming upload). Server-side:
+`audio_turn` runs STT, LLM reply, and TTS fully sequentially, returning one full
+base64 audio blob only once all three finish; client decodes and plays only after
+that. A helper (`_llm_reply_with_early_tts`) already exists to start TTS on the
+first sentence while the rest of the reply streams, but it turned out to be dead
+code (never called), and wiring it into `audio_turn` directly would conflict with
+existing post-generation safety checks (honesty/therapy-reply overrides can replace
+`reply` entirely after the LLM finishes) -- speaking a first sentence before those
+checks run would risk playing content that gets overridden a moment later. This
+needs a careful, dedicated redesign rather than a quick wire-up; tracked as a
+follow-up, not shipped this round to avoid trading one bug for another.
+
+### Conversation-starter scope (user-confirmed, narrowed)
+No new proactive trigger types this round. Only the existing daily check-in prompt
+content/timing is being made smarter and more natural -- same toggle, no new UI.
+
+---
+
 ## Related docs
 
 - [Wake word decision](./decisions/wake-word-engine.md)

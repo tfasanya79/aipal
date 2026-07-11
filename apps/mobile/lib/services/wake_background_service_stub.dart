@@ -2,6 +2,10 @@
 class WakeBackgroundService {
   static Future<void> init() async {}
 
+  /// Mirrors the Android implementation's diagnostic field (always null here
+  /// since this platform never attempts to run the service).
+  static String? lastEnsureRunningError;
+
   static Future<bool> ensureRunning({bool forceRestart = false}) async => false;
 
   static Future<void> stop() async {}

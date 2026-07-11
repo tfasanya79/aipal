@@ -75,35 +75,59 @@ class WakeBackgroundService {
     required bool forceRestart,
   }) => alreadyRunning && forceRestart;
 
+  /// Set when [ensureRunning] fails due to an exception on the main-isolate
+  /// side (permission checks / FlutterForegroundTask calls), so callers can
+  /// surface a diagnosable error instead of the generic "permission
+  /// required" fallback message. Round 8: previously any exception here
+  /// (e.g. a transient PlatformException from permission_handler) propagated
+  /// uncaught out of ensureRunning(), leaving the caller's await stuck and
+  /// contributing to the engine-never-ready symptom.
+  static String? lastEnsureRunningError;
+
   static Future<bool> ensureRunning({bool forceRestart = false}) async {
     if (!Platform.isAndroid) return false;
-    final mic = await Permission.microphone.request();
-    if (!mic.isGranted) return false;
-    if (!await _ensureNotificationPermission()) return false;
+    lastEnsureRunningError = null;
+    try {
+      final mic = await Permission.microphone.request();
+      if (!mic.isGranted) {
+        lastEnsureRunningError = 'Microphone permission not granted.';
+        return false;
+      }
+      if (!await _ensureNotificationPermission()) {
+        lastEnsureRunningError = 'Notification permission not granted.';
+        return false;
+      }
 
-    final alreadyRunning = await FlutterForegroundTask.isRunningService;
-    if (shouldTrustAlreadyRunning(
-      alreadyRunning: alreadyRunning,
-      forceRestart: forceRestart,
-    )) {
-      return true;
+      final alreadyRunning = await FlutterForegroundTask.isRunningService;
+      if (shouldTrustAlreadyRunning(
+        alreadyRunning: alreadyRunning,
+        forceRestart: forceRestart,
+      )) {
+        return true;
+      }
+
+      if (shouldStopBeforeRestart(
+        alreadyRunning: alreadyRunning,
+        forceRestart: forceRestart,
+      )) {
+        await FlutterForegroundTask.stopService();
+        await Future.delayed(VoiceConfiguration.wakeServiceRestartSettleDelay);
+      }
+
+      final result = await FlutterForegroundTask.startService(
+        serviceId: _serviceId,
+        notificationTitle: 'AiPal is listening for Hi Pal',
+        notificationText: 'Say Hi Pal to start Live hands-free',
+        callback: startWakeCallback,
+      );
+      if (result is! ServiceRequestSuccess) {
+        lastEnsureRunningError = 'startService did not report success: $result';
+      }
+      return result is ServiceRequestSuccess;
+    } catch (e) {
+      lastEnsureRunningError = 'ensureRunning crashed: $e';
+      return false;
     }
-
-    if (shouldStopBeforeRestart(
-      alreadyRunning: alreadyRunning,
-      forceRestart: forceRestart,
-    )) {
-      await FlutterForegroundTask.stopService();
-      await Future.delayed(VoiceConfiguration.wakeServiceRestartSettleDelay);
-    }
-
-    final result = await FlutterForegroundTask.startService(
-      serviceId: _serviceId,
-      notificationTitle: 'AiPal is listening for Hi Pal',
-      notificationText: 'Say Hi Pal to start Live hands-free',
-      callback: startWakeCallback,
-    );
-    return result is ServiceRequestSuccess;
   }
 
   static Future<void> stop() async {

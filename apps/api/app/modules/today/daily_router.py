@@ -89,11 +89,62 @@ async def evening_payload(
 
 
 @router.get("/checkin-payload", response_model=DailyPayload)
-async def checkin_payload(user: User = Depends(get_current_user)):
+async def checkin_payload(
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Round 8: was a static, context-free prompt every time it fired
+    ("Just checking in -- how are you feeling?"). Now mirrors the
+    morning/evening payload pattern -- references today's actual task
+    progress and the companion line, and varies greeting by time of day --
+    so the daily check-in reads like the companion noticed something about
+    your day, not a generic ping.
+    """
     name = user.wake_name or user.display_name or "there"
+    local_day = user_local_today(user.timezone)
+    summary = await task_svc.task_summary(db, user.id, local_day, timezone=user.timezone)
+    companion_line = await reflection_svc.companion_line_for_day(db, user)
+
+    try:
+        tz = ZoneInfo(user.timezone or "UTC")
+        hour = datetime.now(tz).hour
+    except Exception:
+        hour = 12
+
+    if hour < 12:
+        greeting = f"Hey {name},"
+    elif hour < 17:
+        greeting = f"Hi {name},"
+    else:
+        greeting = f"Evening, {name}."
+
+    if summary.total == 0:
+        prompt = "Just checking in — how are you feeling, and is there anything you'd like to plan?"
+    elif summary.open == 0:
+        prompt = (
+            f"You're all caught up — {summary.done} of {summary.total} done today. "
+            "How are you feeling?"
+        )
+    elif summary.done == 0:
+        task_word = "task" if summary.open == 1 else "tasks"
+        prompt = (
+            f"Just checking in — you've got {summary.open} {task_word} still open today. "
+            "How's it going?"
+        )
+    else:
+        prompt = (
+            f"Just checking in — you've done {summary.done} of {summary.total} so far. "
+            "How are you feeling about the rest of today?"
+        )
+
+    if companion_line:
+        prompt = f"{companion_line} {prompt}"
+
     return DailyPayload(
-        greeting=f"Hey {name},",
-        prompt="Just checking in — how are you feeling?",
+        greeting=greeting,
+        prompt=prompt,
+        summary=summary,
+        companion_line=companion_line,
     )
 
 
