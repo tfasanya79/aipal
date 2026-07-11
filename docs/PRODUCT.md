@@ -515,6 +515,47 @@ content/timing is being made smarter and more natural -- same toggle, no new UI.
 
 ---
 
+## Round 8 follow-up (v2.6.28+117): the real wake crash, found via diagnostics
+
+Build 116 shipped the isolate crash *guard*, and it worked exactly as intended: the
+next crash report surfaced an exact, diagnosable error instead of a generic
+timeout --
+
+```
+wakeWordError=onStart crashed: PlatformException(PermissionHandler.PermissionManager,
+Unable to detect current Android Activity., null, null)
+```
+
+### Root cause
+`WakeWordEngine._startImpl()` calls `ensureMicPermission()`, which called
+`Permission.microphone.request()`. On Android, `permission_handler`'s `.request()`
+needs a foreground `Activity` attached so it can show the system permission dialog
+and receive the callback. `WakeForegroundHandler.onStart` runs inside the Android
+foreground-service background isolate, which has no `Activity` -- so `.request()`
+threw immediately, and (thanks to the build-116 crash guard) that exception was
+finally caught and reported instead of silently killing the isolate.
+
+By the time this isolate starts, the permission has *already* been requested and
+granted by the main isolate in `WakeBackgroundService.ensureRunning()` (which does
+run with an Activity, since it's triggered from the Settings toggle). The
+background isolate calling `.request()` again was both redundant and fatal.
+
+### Fix
+- Added a `canRequestPermission` constructor flag to `WakeWordEngine` (default
+  `true`, preserving existing behavior for the main-isolate/Settings "fine-tune"
+  preview flow).
+- `ensureMicPermission()` now checks `Permission.microphone.status` (a read-only
+  query that does not require an Activity) instead of `.request()` whenever
+  `canRequestPermission` is `false`.
+- `WakeForegroundHandler` constructs its `WakeWordEngine` with
+  `canRequestPermission: false`, since it always runs in the Activity-less
+  background isolate.
+
+This is a narrow, evidence-based fix directly from the exact error text the
+build-116 diagnostics surfaced -- not a guess.
+
+---
+
 ## Related docs
 
 - [Wake word decision](./decisions/wake-word-engine.md)

@@ -17,9 +17,11 @@ class WakeWordEngine {
     bool Function()? shouldSuppress,
     String modelVersion = '0.1',
     MicrophoneManager? microphoneManager,
+    bool canRequestPermission = true,
   }) : _shouldSuppress = shouldSuppress,
        _modelVersion = modelVersion,
-       _microphoneManager = microphoneManager ?? MicrophoneManager.instance;
+       _microphoneManager = microphoneManager ?? MicrophoneManager.instance,
+       _canRequestPermission = canRequestPermission;
 
   final void Function() onWake;
   bool Function()? _shouldSuppress;
@@ -40,6 +42,13 @@ class WakeWordEngine {
   agentDebug;
 
   final MicrophoneManager _microphoneManager;
+  // Round 8 follow-up fix: the background isolate (Android foreground
+  // service) has no Activity attached, so permission_handler's `.request()`
+  // throws PlatformException("Unable to detect current Android Activity").
+  // Permission is already granted beforehand by the main isolate's
+  // pre-flight check in wake_background_service_io.dart's ensureRunning(),
+  // so the background isolate only needs to *check* status, never request.
+  final bool _canRequestPermission;
   StreamSubscription<Uint8List>? _audioSub;
   bool _initialized = false;
   bool _listening = false;
@@ -64,6 +73,15 @@ class WakeWordEngine {
   bool _isSuppressed() => _suppressed || (_shouldSuppress?.call() ?? false);
 
   Future<bool> ensureMicPermission() async {
+    if (!_canRequestPermission) {
+      // No Activity available here (background isolate) -- requesting would
+      // crash with PlatformException("Unable to detect current Android
+      // Activity"). Just check current status; the main isolate is
+      // responsible for requesting the permission before this isolate ever
+      // starts.
+      final status = await Permission.microphone.status;
+      return status.isGranted;
+    }
     final status = await Permission.microphone.request();
     return status.isGranted;
   }

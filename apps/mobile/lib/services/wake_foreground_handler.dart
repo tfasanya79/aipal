@@ -23,7 +23,14 @@ class WakeForegroundHandler extends TaskHandler {
   @override
   Future<void> onStart(DateTime timestamp, TaskStarter starter) async {
     try {
-      _engine = WakeWordEngine(onWake: _onWakeDetected);
+      // canRequestPermission: false -- this isolate has no Activity;
+      // see WakeWordEngine's _canRequestPermission doc for why .request()
+      // would crash here. Permission must already be granted by the main
+      // isolate before this isolate is ever started.
+      _engine = WakeWordEngine(
+        onWake: _onWakeDetected,
+        canRequestPermission: false,
+      );
       if (!await _engine!.init()) {
         _reportFailure(
           WakeWordEngine.lastInitError ?? 'OpenWakeWord init failed',
