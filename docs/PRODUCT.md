@@ -556,6 +556,81 @@ build-116 diagnostics surfaced -- not a guess.
 
 ---
 
+## Round 8 follow-up #2 (v2.6.29+118): Orb tap deadlock + real latency fixes
+
+User confirmed build 117 fixed the wake listener (voiceState=wakeListening,
+wakeWordListening=true, wakeWordError=none in diagnostics -- the wake-word saga
+across rounds 6-8 is closed). Two new issues were reported in the same message:
+the Orb's "Tap to go Live" working once then going permanently unresponsive, and
+noticeably slow/unnatural conversation turnaround.
+
+### Bug: Orb permanently unresponsive after first Live session
+Root cause: `toggleLive()` in `AppState` is guarded by a `_toggleLiveInProgress`
+mutex flag, reset in a `finally` block -- but two awaited calls inside that
+critical section had **no timeout**: `LiveSession.stop()`'s
+`await _channel?.sink.close()` (WebSocket close) and `LiveVoiceLoop.stop()`'s
+`await _microphoneManager.stopRecording(...)` (native mic-stop platform call).
+If either ever hung (a stuck socket, a stuck platform channel call), the
+`finally` block would never run, `_toggleLiveInProgress` would stay `true`
+forever, and every subsequent tap would silently no-op on the very first line
+of `toggleLive()` -- exactly matching "worked the first time, then stopped
+responding to taps."
+
+Fix (defense in depth, same pattern as the Round 8 wake-isolate guard): added a
+3s timeout around each of those two low-level calls so a stuck resource can
+never hang them indefinitely, **plus** a top-level 10s timeout wrapping the
+entire `toggleLive()` critical section that force-resets to a known-good
+resting state on timeout (clears `_inConversation`/`_voiceLoop`/processing
+flags, surfaces a "Live session reset after a stuck connection" error). This
+guarantees the mutex always releases, even for an unforeseen future hang this
+round didn't anticipate.
+
+### Latency: measured real production numbers, not guesses
+Queried `session_events` (`audio_turn_complete`) directly from the production
+DB for the last 20 real voice turns instead of guessing:
+
+- STT (faster-whisper, local CPU, "base" model): ~1.0-1.8s typical, occasional
+  6-8.6s outliers (likely longer utterances or a cold model).
+- LLM reply (DeepSeek): ~1.1-1.9s typical, occasional 2.9-3.8s outliers.
+- TTS: ~0.5-1.3s typical.
+- Backend total: ~3-4s typical, up to 12.6s on outliers. No single stage
+  dominates -- all three are comparable in size, so overlapping stages would
+  help more than optimizing any one of them alone (this is why the dead-code
+  early-TTS helper, flagged in the prior round, remains the eventual right
+  answer -- but it still needs the safety-check-reconciliation redesign
+  before it can ship safely).
+
+On top of backend time, every request also paid a full fresh TCP+TLS
+handshake: `ApiClient` used `package:http`'s top-level `get`/`post`/`put`/
+`patch` functions and `MultipartRequest.send()` with no client -- the
+`http` package's own docs state this "automatically initializes a new Client
+and closes that client once the request is complete." Combined with
+`AppState.api` constructing a brand-new `ApiClient` on every access, this
+meant literally every voice turn (including the audio upload) opened a new
+connection from scratch instead of reusing a keep-alive connection to the
+same host.
+
+Fix: `ApiClient` now holds one shared `static final http.Client`, reused by
+every request (including the multipart audio upload). This is a pure
+connection-reuse change with zero effect on business logic or the AI
+pipeline's correctness-critical safety checks -- it only removes redundant
+TLS handshake round-trips from every turn.
+
+### Explicitly not changed this round (flagged for the user, not gambled on)
+- The client VAD silence-tail wait (700-1700ms, scaled to 25% of utterance
+  length) looks like a deliberate, already-tuned adaptive design, not an
+  oversight -- left untouched pending real evidence it's miscalibrated.
+- Swapping the local Whisper STT model to a smaller/faster tier (e.g. "tiny")
+  would cut STT time but trades off transcription accuracy -- a product
+  decision, not something to change silently.
+- The full early-TTS overlap redesign (reconciling with the post-generation
+  safety-check overrides) is still not shipped; today's fixes are
+  connection-layer only.
+
+Validated: `flutter analyze` clean, `flutter test` 28/28 passing.
+
+---
+
 ## Related docs
 
 - [Wake word decision](./decisions/wake-word-engine.md)

@@ -83,7 +83,14 @@ class LiveVoiceLoop {
     _active = false;
     _ticker?.cancel();
     _ticker = null;
-    await _microphoneManager.stopRecording(MicrophoneOwner.liveVoiceLoop);
+    // Round 8 follow-up: bound the native mic-stop call so a stuck platform
+    // channel can never hang toggleLive()'s mutex forever (the same class of
+    // bug as the unbounded WebSocket close in LiveSession.stop()).
+    try {
+      await _microphoneManager
+          .stopRecording(MicrophoneOwner.liveVoiceLoop)
+          .timeout(const Duration(seconds: 3));
+    } catch (_) {}
     _inSegment = false;
     _currentPath = null;
     _microphoneManager.release(MicrophoneOwner.liveVoiceLoop);

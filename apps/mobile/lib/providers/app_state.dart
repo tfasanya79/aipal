@@ -1256,17 +1256,43 @@ class AppState extends ChangeNotifier {
           _inConversation ||
           liveSession.isActive ||
           (_voiceLoop?.isActive ?? false);
-      if (liveActive) {
-        _turnGeneration++;
-        _processingTurn = false;
-        _speaking = false;
-        _awaitingGreeting = false;
-        await _player.stop();
-        _armWakeSuppress();
-        await _endConversation();
-      } else {
-        await _startConversation();
-      }
+      // Round 8 follow-up: LiveSession.stop() and LiveVoiceLoop.stop() now
+      // carry their own internal timeouts, but this outer bound is a last
+      // line of defense -- if any *future* awaited call in this critical
+      // section hangs for an unforeseen reason, this guarantees
+      // _toggleLiveInProgress is always released within 10s instead of
+      // bricking the Orb's tap handler forever (Bug: "Orb worked once, then
+      // stopped responding to taps" -- caused by an unbounded await here
+      // never returning, so the mutex flag never reset).
+      await Future(() async {
+        if (liveActive) {
+          _turnGeneration++;
+          _processingTurn = false;
+          _speaking = false;
+          _awaitingGreeting = false;
+          await _player.stop();
+          _armWakeSuppress();
+          await _endConversation();
+        } else {
+          await _startConversation();
+        }
+      }).timeout(
+        const Duration(seconds: 10),
+        onTimeout: () {
+          // Force back to a known-good resting state so the next tap works.
+          _inConversation = false;
+          _voiceLoop = null;
+          _processingTurn = false;
+          _speaking = false;
+          _awaitingGreeting = false;
+          liveError = 'Live session reset after a stuck connection. Please try again.';
+          _setVoiceState(
+            wakeWordEnabled ? VoiceState.cooldown : VoiceState.idle,
+            VoiceEvent.conversationEnded,
+            'toggle_live_timeout_reset',
+          );
+        },
+      );
       notifyListeners();
     } finally {
       _toggleLiveInProgress = false;

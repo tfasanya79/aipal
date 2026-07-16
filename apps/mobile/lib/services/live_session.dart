@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:web_socket_channel/web_socket_channel.dart';
@@ -43,7 +44,13 @@ class LiveSession {
     try {
       _channel?.sink.add(jsonEncode({'type': 'end'}));
     } catch (_) {}
-    await _channel?.sink.close();
+    // Round 8 follow-up: a stuck/half-open socket close() with no timeout
+    // was found to hang toggleLive()'s mutex forever, making the Orb
+    // permanently unresponsive after the first Live session ended. Bound
+    // this wait so the caller's critical section always completes.
+    try {
+      await _channel?.sink.close().timeout(const Duration(seconds: 3));
+    } catch (_) {}
     _channel = null;
     sessionId = null;
     state = LiveState.resting;

@@ -11,6 +11,18 @@ class ApiClient {
   static const _timeout = Duration(seconds: 12);
   static const _audioTurnTimeout = Duration(seconds: 45);
 
+  // Latency fix: every api.* call previously went through package:http's
+  // top-level get/post/put/patch functions (or MultipartRequest.send() with
+  // no client), each of which -- per the http package's own documentation --
+  // "automatically initializes a new Client and closes that client once the
+  // request is complete." That means every single request, including every
+  // voice turn's audio upload, paid a full new TCP+TLS handshake instead of
+  // reusing a keep-alive connection. Since `AppState.api` also constructs a
+  // new ApiClient on every access, this must be a shared static client (not
+  // an instance field) so the underlying connection pool is actually reused
+  // across calls regardless of how many ApiClient wrapper objects exist.
+  static final http.Client _client = http.Client();
+
   final String? token;
 
   Map<String, String> get _headers => {
@@ -19,25 +31,25 @@ class ApiClient {
   };
 
   Future<http.Response> _get(Uri uri, {Duration timeout = _timeout}) =>
-      http.get(uri, headers: _headers).timeout(timeout);
+      _client.get(uri, headers: _headers).timeout(timeout);
 
   Future<http.Response> _post(
     Uri uri, {
     Object? body,
     Duration timeout = _timeout,
-  }) => http.post(uri, headers: _headers, body: body).timeout(timeout);
+  }) => _client.post(uri, headers: _headers, body: body).timeout(timeout);
 
   Future<http.Response> _put(
     Uri uri, {
     Object? body,
     Duration timeout = _timeout,
-  }) => http.put(uri, headers: _headers, body: body).timeout(timeout);
+  }) => _client.put(uri, headers: _headers, body: body).timeout(timeout);
 
   Future<http.Response> _patch(
     Uri uri, {
     Object? body,
     Duration timeout = _timeout,
-  }) => http.patch(uri, headers: _headers, body: body).timeout(timeout);
+  }) => _client.patch(uri, headers: _headers, body: body).timeout(timeout);
 
   http.Response _requireSuccess(http.Response response, String op) {
     if (response.statusCode >= 400) {
@@ -286,7 +298,10 @@ class ApiClient {
     req.files.add(
       http.MultipartFile.fromBytes('file', bytes, filename: filename),
     );
-    final streamed = await req.send().timeout(_audioTurnTimeout);
+    // Use the shared persistent client (see _client doc above) instead of
+    // req.send(), which would open a brand-new connection for every audio
+    // turn upload.
+    final streamed = await _client.send(req).timeout(_audioTurnTimeout);
     final body = await streamed.stream.bytesToString();
     if (streamed.statusCode >= 400) {
       throw Exception('Audio turn failed (${streamed.statusCode}): $body');
