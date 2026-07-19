@@ -556,6 +556,18 @@ build-116 diagnostics surfaced -- not a guess.
 
 ---
 
+## Round 9 (v2.6.30+119): Onboarding email-validation bug fix
+
+**Bug reported**: fresh onboarding attempt showed "Could not finish setup right now. Please try again." after entering name/bio on the second onboarding step.
+
+**Root cause (confirmed via server logs + code, not guessed)**: the onboarding screen's step-0 email check only verified the string contained an `@` (e.g. `tim@gmail` passed). The backend's `RegisterRequest.email` is a Pydantic `EmailStr`, which requires a properly formed domain (dot + real TLD) via the `email-validator` library and rejects `tim@gmail`. Server logs (`journalctl -u aipal-v2`) showed repeated `POST /auth/register` 422 Unprocessable Entity responses matching the user's onboarding attempts. `AppState._mapOnboardingError()` has no branch for HTTP 422, so it fell through to the generic catch-all message — which is accurate as a symptom description but gave no hint of the real cause.
+
+**Fix**: replaced the loose `email.contains('@')` check in `onboarding_screen.dart` with a real email-format regex (`^[\w.+-]+@[\w-]+(\.[\w-]+)*\.[A-Za-z]{2,}$`) matching what the server actually requires, so malformed emails are caught at step 0 with a clear "Enter a valid email address" message instead of failing silently two steps later after the user has already filled in their name/bio. Added a regression test (`tim@gmail` case) alongside the existing onboarding tests.
+
+**Not changed this round**: the generic catch-all error message in `_mapOnboardingError()` for other unclassified error types — flagged as a possible follow-up (e.g. surfacing the actual HTTP status/reason in a future round) but out of scope for this specific bug.
+
+---
+
 ## Round 8 follow-up #2 (v2.6.29+118): Orb tap deadlock + real latency fixes
 
 User confirmed build 117 fixed the wake listener (voiceState=wakeListening,

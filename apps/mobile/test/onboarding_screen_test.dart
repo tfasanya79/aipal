@@ -25,6 +25,18 @@ void main() {
     expect(find.text('Enter a valid email address'), findsOneWidget);
   });
 
+  testWidgets(
+    'invalid email with @ but no real domain blocked (regression: server EmailStr rejects this)',
+    (tester) async {
+      await tester.pumpWidget(const MaterialApp(home: OnboardingScreen()));
+      await tester.enterText(find.byType(TextField), 'tim@gmail');
+      await tester.tap(find.text('Continue'));
+      await tester.pump();
+      expect(find.text('Enter a valid email address'), findsOneWidget);
+      expect(find.text('What should I call you?'), findsNothing);
+    },
+  );
+
   testWidgets('valid email advances to profile step', (tester) async {
     await tester.pumpWidget(const MaterialApp(home: OnboardingScreen()));
     await tester.enterText(find.byType(TextField), 'user@example.com');

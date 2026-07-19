@@ -23,6 +23,13 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
   final _email = TextEditingController();
   final _wakeName = TextEditingController();
   final _about = TextEditingController();
+
+  static final RegExp _emailPattern = RegExp(
+    r"^[\w.+-]+@[\w-]+(\.[\w-]+)*\.[A-Za-z]{2,}$",
+  );
+
+  bool _isValidEmail(String email) =>
+      email.isNotEmpty && _emailPattern.hasMatch(email);
   int _step = 0;
   String? _error;
   bool _submitting = false;
@@ -215,7 +222,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                     : () {
                         if (_step == 0 && !widget.continueProfile) {
                           final email = _email.text.trim();
-                          if (email.isEmpty || !email.contains('@')) {
+                          if (!_isValidEmail(email)) {
                             setState(
                               () => _error = 'Enter a valid email address',
                             );
