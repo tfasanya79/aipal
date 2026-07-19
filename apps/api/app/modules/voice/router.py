@@ -290,51 +290,61 @@ def _confirmed_reply(
 _SENTENCE_END = re.compile(r'[.!?](?:\s|$)')
 
 
-async def _llm_reply_with_early_tts(
-    messages: list[dict],
-    voice: str,
-) -> tuple[str, bytes, str]:
-    """Stream LLM tokens; begin TTS on first sentence to reduce voice latency.
+async def _resolve_early_tts(
+    raw_reply: str,
+    final_reply: str,
+    early_first_sent: str | None,
+    early_tts_task: "asyncio.Task | None",
+    voice: str | None,
+    early_audio: dict | None,
+    session_id: str,
+) -> None:
+    """Reconcile a speculatively-started first-sentence TTS task against the
+    final (post-safety-check) reply text.
 
-    Returns (full_reply, audio_bytes, audio_mime).
+    If the safety checks (honesty override / therapy blanking / mutation
+    recovery) left the reply byte-for-byte unchanged, the speculative audio
+    is reused (populating early_audio in place) -- this is the latency win.
+    If the reply was rewritten by any safety check, the speculative audio no
+    longer matches what will be spoken, so it is discarded (task cancelled,
+    early_audio left empty) and the caller falls back to synthesizing the
+    final text fresh, exactly as it did before early-TTS existed -- so a
+    safety override can never result in stale/wrong audio being played.
     """
-    tokens: list[str] = []
-    first_sent: str | None = None
-    first_tts_task: asyncio.Task | None = None
-
-    async for token in llm_stream(messages):
-        tokens.append(token)
-        accumulated = "".join(tokens)
-        if first_sent is None and _SENTENCE_END.search(accumulated):
-            # First sentence ready — kick off TTS while rest streams
-            first_sent = accumulated.strip()
-            first_tts_task = asyncio.create_task(synthesize(first_sent, voice))
-
-    full_reply = "".join(tokens).strip()
-    if not full_reply:
-        return "", b"", "audio/mpeg"
-
-    # If first sentence TTS already running, synthesize remainder in parallel
-    if first_tts_task is not None and first_sent and full_reply != first_sent:
-        remainder = full_reply[len(first_sent):].strip()
-
-        async def _empty_audio() -> tuple[bytes, str]:
-            return b"", "audio/mpeg"
-
-        first_bytes_result, remainder_result = await asyncio.gather(
-            first_tts_task,
-            synthesize(remainder, voice) if remainder else _empty_audio(),
+    if early_tts_task is None:
+        return
+    if final_reply != raw_reply or not early_first_sent:
+        early_tts_task.cancel()
+        agent_debug(
+            "H3",
+            "router._reply_for_text",
+            "early_tts_discarded_reply_overridden",
+            {"session_id": session_id},
         )
-        first_bytes, first_mime = first_bytes_result
-        remainder_bytes, audio_mime = remainder_result
-        return full_reply, first_bytes + remainder_bytes, first_mime or audio_mime
-    elif first_tts_task is not None:
-        audio_bytes, audio_mime = await first_tts_task
-        return full_reply, audio_bytes, audio_mime
+        return
+
+    first_bytes, first_mime = await early_tts_task
+    if final_reply == early_first_sent:
+        if early_audio is not None:
+            early_audio["bytes"] = first_bytes
+            early_audio["mime"] = first_mime
     else:
-        # Very short reply (no sentence end) — synthesize once
-        audio_bytes, audio_mime = await synthesize(full_reply, voice)
-        return full_reply, audio_bytes, audio_mime
+        remainder = final_reply[len(early_first_sent):].strip()
+        if remainder:
+            remainder_bytes, remainder_mime = await synthesize(remainder, voice)
+            if remainder_mime == first_mime and early_audio is not None:
+                early_audio["bytes"] = first_bytes + remainder_bytes
+                early_audio["mime"] = first_mime
+        elif early_audio is not None:
+            early_audio["bytes"] = first_bytes
+            early_audio["mime"] = first_mime
+    agent_debug(
+        "H3",
+        "router._reply_for_text",
+        "early_tts_used" if (early_audio or {}).get("bytes") else "early_tts_discarded_mime_mismatch",
+        {"session_id": session_id},
+    )
+
 
 
 async def _recover_edit_from_history(
@@ -408,6 +418,8 @@ async def _reply_for_text(
     session_id: str | None = None,
     *,
     channel: str = "text",
+    voice: str | None = None,
+    early_audio: dict | None = None,
 ) -> tuple[str, bool, list[str], str, PlanDraftResponse | None, MusicCommand | None]:
     sid = session_id or str(uuid.uuid4())
     if is_crisis_likely(text):
@@ -687,14 +699,30 @@ async def _reply_for_text(
     prefix = "[Context" if not messages else "[State"
     messages.append({"role": "user", "content": f"{prefix}: {system_ctx}]\n\n{text}"})
 
+    _early_first_sent: str | None = None
+    _early_tts_task: asyncio.Task | None = None
     if channel == "audio":
-        # Use streaming for voice turns to reduce time-to-first-token
+        # Use streaming for voice turns to reduce time-to-first-token. When a
+        # voice is given, also speculatively start TTS on the first complete
+        # sentence while the rest keeps streaming, overlapping TTS latency
+        # with LLM generation instead of running them fully sequentially.
+        # The speculative audio is only used (see below, after the safety
+        # checks) if those checks leave the reply unchanged; otherwise it is
+        # discarded and the caller synthesizes fresh -- never a regression.
         reply_tokens: list[str] = []
         async for token in llm_stream(messages):
             reply_tokens.append(token)
+            if voice and _early_first_sent is None:
+                _accumulated = "".join(reply_tokens)
+                if _SENTENCE_END.search(_accumulated):
+                    _early_first_sent = _accumulated.strip()
+                    _early_tts_task = asyncio.create_task(
+                        synthesize(_early_first_sent, voice)
+                    )
         reply = "".join(reply_tokens).strip()
     else:
         reply = await llm_chat(messages)
+    _raw_llm_reply = reply
 
     if re.search(r"\bi['']?ll add\b|\bi will add\b", reply, re.IGNORECASE) and not (
         _has_mutation_tool_action(tool_actions) or _has_confirmed_plan(tool_actions)
@@ -751,6 +779,10 @@ async def _reply_for_text(
                 reply = _HONEST_NOT_ADDED
         else:
             reply = _HONEST_NOT_CHANGED
+
+    await _resolve_early_tts(
+        _raw_llm_reply, reply, _early_first_sent, _early_tts_task, voice, early_audio, sid
+    )
 
     await conv_svc.append_turn(db, user.id, sid, "user", text)
     await conv_svc.append_turn(db, user.id, sid, "assistant", reply)
@@ -925,9 +957,11 @@ async def audio_turn(
             skip_tts=True,
         )
 
+    chosen_voice = get_voice_id(getattr(user, "tts_voice", "aria"))
+    early_audio: dict = {}
     t_reply = time.monotonic()
     reply, crisis, tool_actions, sid, draft, music_command = await _reply_for_text(
-        db, user, transcript, sid, channel="audio"
+        db, user, transcript, sid, channel="audio", voice=chosen_voice, early_audio=early_audio
     )
     reply_ms = int((time.monotonic() - t_reply) * 1000)
     # #region agent log
@@ -979,8 +1013,10 @@ async def audio_turn(
         tool_actions and any(a.startswith("Confirmed plan:") for a in tool_actions)
     )
     t_tts = time.monotonic()
-    chosen_voice = get_voice_id(getattr(user, "tts_voice", "aria"))
-    audio_bytes, audio_mime = await synthesize(reply, chosen_voice)
+    if early_audio.get("bytes"):
+        audio_bytes, audio_mime = early_audio["bytes"], early_audio["mime"]
+    else:
+        audio_bytes, audio_mime = await synthesize(reply, chosen_voice)
     tts_ms = int((time.monotonic() - t_tts) * 1000)
     total_ms = int((time.monotonic() - t0) * 1000)
 
