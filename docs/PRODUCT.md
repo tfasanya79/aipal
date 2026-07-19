@@ -788,6 +788,54 @@ status chip → Copy diagnostics → check the `reminderError` line for the exac
 
 ---
 
+## Round 9 continued: Voice-latency early-TTS (2026-07-19, build backend-only)
+
+**Ask**: conversation replies should feel closer to Siri/Bixby/Copilot-grade
+responsiveness -- the biggest remaining lever identified was overlapping TTS
+synthesis with LLM generation instead of running them fully sequentially.
+
+**Design constraint (why this wasn't done earlier)**: `_reply_for_text()` runs
+three post-generation safety/honesty checks that can rewrite the LLM's reply
+after it is fully generated -- an "I'll add" claim-blocking override, a
+therapy-reply blanking check, and a mutation-claim recovery flow. Starting
+audio playback on sentence 1 before these run risked voicing a claim the
+safety layer would go on to contradict or blank out -- a worse UX than the
+existing delay, and exactly the kind of "gamble" ruled out earlier this round.
+
+**Fix shipped**: speculative first-sentence TTS, safely reconciled after the
+safety checks run:
+- While the LLM reply streams token-by-token, as soon as the first complete
+  sentence is detected, TTS synthesis for that sentence starts immediately in
+  parallel with continued generation of the rest of the reply.
+- After the (unchanged) safety-check block runs, the speculative audio is
+  reused **only if the final reply is byte-for-byte identical to the raw LLM
+  output**. If any safety check rewrote the reply, the speculative audio is
+  discarded (task cancelled) and the caller synthesizes the final text fresh --
+  identical behavior/latency to before this change in the override case, so
+  there is zero regression risk to the trust/safety pipeline.
+- A mime-type-match guard prevents concatenating mismatched audio formats
+  (e.g. if the edge-tts primary path succeeds for one segment but the
+  espeak-ng fallback fires for another) -- falls back to a fresh single
+  synthesis in that rare case too.
+- The reconciliation logic lives in a standalone `_resolve_early_tts()` helper
+  (not inlined) so it is directly unit-testable without mocking the full
+  `_reply_for_text` call chain (db/conversation/memory/intent-extraction).
+
+**Validated**:
+- 5 new regression tests (`tests/test_voice_early_tts.py`): reuse when
+  unchanged, remainder-synthesis concatenation, discard on safety override,
+  discard on mime-type mismatch, no-op when no speculative task started.
+  82/82 tests passing (was 77).
+- Live end-to-end smoke test against production confirmed `early_tts_used`
+  fired for a real voice turn (real Anthropic streaming + real edge-tts).
+- Backend-only change -- deployed via rsync to `/opt/aipal-v2/apps/api/` +
+  `systemctl restart aipal-v2` (no mobile rebuild needed).
+
+**Ask user to test**: have a live voice conversation and confirm replies feel
+noticeably snappier, especially for longer, multi-sentence responses.
+
+---
+
 ## Related docs
 
 - [Wake word decision](./decisions/wake-word-engine.md)
