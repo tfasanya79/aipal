@@ -296,28 +296,52 @@ class _CompanionScreenState extends State<CompanionScreen> {
                 Padding(
                   padding: const EdgeInsets.only(top: 12),
                   child: Column(
-                    children: [
-                      Text(
-                        'Hi Pal enabled — starting listener…',
-                        textAlign: TextAlign.center,
-                        style: TextStyle(
-                          fontSize: 13,
-                          color: Colors.white.withValues(alpha: 0.45),
-                        ),
-                      ),
-                      const SizedBox(height: 6),
-                      TextButton.icon(
-                        onPressed: () => state.syncWakeListener(),
-                        icon: const Icon(Icons.refresh, size: 16),
-                        label: const Text('Retry listener'),
-                        style: TextButton.styleFrom(
-                          foregroundColor: Theme.of(
-                            context,
-                          ).colorScheme.primary,
-                          visualDensity: VisualDensity.compact,
-                        ),
-                      ),
-                    ],
+                    // Round 9 fix: distinguish a transient restart (normal,
+                    // takes up to ~9s after every Live session per
+                    // _restartWakeAfterLive's 800ms settle + up to 8s
+                    // ensureRunning wait) from a genuine failure
+                    // (wakeWordError set). Previously an actionable "Retry
+                    // listener" button appeared immediately in BOTH cases,
+                    // making the normal restart window look broken.
+                    children: state.wakeWordError == null
+                        ? [
+                            const SizedBox(
+                              width: 14,
+                              height: 14,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            ),
+                            const SizedBox(height: 8),
+                            Text(
+                              'Hi Pal enabled — starting listener…',
+                              textAlign: TextAlign.center,
+                              style: TextStyle(
+                                fontSize: 13,
+                                color: Colors.white.withValues(alpha: 0.45),
+                              ),
+                            ),
+                          ]
+                        : [
+                            Text(
+                              'Hi Pal enabled — starting listener…',
+                              textAlign: TextAlign.center,
+                              style: TextStyle(
+                                fontSize: 13,
+                                color: Colors.white.withValues(alpha: 0.45),
+                              ),
+                            ),
+                            const SizedBox(height: 6),
+                            TextButton.icon(
+                              onPressed: () => state.syncWakeListener(),
+                              icon: const Icon(Icons.refresh, size: 16),
+                              label: const Text('Retry listener'),
+                              style: TextButton.styleFrom(
+                                foregroundColor: Theme.of(
+                                  context,
+                                ).colorScheme.primary,
+                                visualDensity: VisualDensity.compact,
+                              ),
+                            ),
+                          ],
                   ),
                 ),
               if (kIsWeb && state.wakeWordEnabled)

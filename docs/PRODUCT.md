@@ -643,6 +643,68 @@ Validated: `flutter analyze` clean, `flutter test` 28/28 passing.
 
 ---
 
+
+## Round 9 (v2.6.31+120): Wake-listener "Retry" UX fix + todo-tracker hygiene + standing rules
+
+**Bug investigated**: user reported the "Hi Pal enabled — starting listener…" screen
+showing an actionable "Retry listener" button immediately after every Live
+conversation ended, looking broken (diagnostics showed `wakeWordListening=false`,
+`wakeWordError=none`, `voiceState=cooldown`).
+
+**Root cause (code-traced, not guessed)**: the force-restart-on-retry fix from Round 7
+(`fix-wake-retry-force-restart`, `shouldTrustAlreadyRunning`/`shouldStopBeforeRestart`,
+`_wakeForceRestartNeeded`) was already fully implemented and working correctly — this
+was NOT a new bug. The real gap was in `companion_screen.dart`: the "Retry listener"
+button rendered immediately whenever `wakeWordListening == false`, with no distinction
+between "still restarting" (normal — `_restartWakeAfterLive()`'s 800ms settle delay +
+up to 8s `ensureRunning` wait, so up to ~9s of expected transient state after every
+Live session) and "genuinely failed" (`wakeWordError` actually set). This made the
+completely normal restart window look like a stuck/broken state.
+
+**Fix**: `companion_screen.dart` now shows a small spinner + "starting listener…" with
+no button while `wakeWordError == null` (transient, self-resolving), and only shows the
+actionable "Retry listener" button once `wakeWordError` is actually populated (genuine
+failure). No change to the underlying wake engine/retry logic itself — it was already
+correct.
+
+Validated: `flutter analyze` clean, `flutter test` 29/29 passing (no new tests needed —
+pure UI conditional change, no new logic branch to unit test beyond existing coverage).
+
+**Todo-tracker hygiene**: this round's audit found 12 more todo items that were marked
+`pending`/`in_progress` but were already fully implemented in earlier rounds:
+`auto-time-blocking`, `if-not-done-recovery`, `morning-briefing-auto`,
+`multi-modal-reminders`, `smart-follow-ups`, `voice-editing-expand`,
+`weekly-summary-scheduled-automation` (+ 3 duplicate IDs for the same feature),
+`r8-guard-ensure-running`, `fix-wake-retry-force-restart`. All corrected with evidence.
+Combined with the 5 found last round, that's 17 stale items corrected across two
+rounds — a real process gap, now addressed by a new standing rule (see `AGENTS.md`).
+
+**New**: added `AGENTS.md` at repo root documenting durable standing rules (VM-first
+development, evidence-based changes only, always update todos immediately when done,
+keep `docs/PRODUCT.md` current, wake-word/voice-pipeline change caution, backend
+service name, SSH access) so these survive across every future session, not just
+chat history.
+
+**LLM provider recommendation (researched, not yet implemented — needs user's
+`ANTHROPIC_API_KEY`)**: production voice LLM traffic currently silently falls back to
+Ollama (DeepSeek key was never set). Recommended switch to **Claude Haiku 4.5**
+over both Ollama and DeepSeek for the voice path: ~0.6s time-to-first-token vs
+DeepSeek's ~3.6s — directly addresses the latency complaints from this session, at a
+per-turn cost difference that's trivial given AiPal's small per-turn token budget
+(180 output token cap). DeepSeek key remains available as a documented fallback
+provider, just not the primary voice-path provider until this changes.
+
+**Wake-word "world-class" roadmap (planned, not yet implemented)**: 3-phase plan to
+retrain/harden the custom `Hi_Pal_...onnx` wake model, which was trained primarily on
+synthetic TTS audio (code comment: "model trained on TTS, real speech scores much
+lower", explaining the very low `activationThreshold=0.05`). Phase 1: two-stage
+verification + stronger per-user calibration (no new data needed). Phase 2: retrain
+on real recorded audio (root-cause fix, needs user's help sourcing samples). Phase 3:
+evaluate Picovoice Porcupine as a fallback engine if 1-2 don't reach target
+reliability.
+
+---
+
 ## Related docs
 
 - [Wake word decision](./decisions/wake-word-engine.md)
