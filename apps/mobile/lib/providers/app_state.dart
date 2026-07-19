@@ -84,6 +84,11 @@ class AppState extends ChangeNotifier {
   bool wakeWordEnabled = false;
   bool wakeWordListening = false;
   String? wakeWordError;
+  // Round 9: mirrors wakeWordError's diagnosability -- previously a failure
+  // here (missing permission, plugin exception) was swallowed by a silent
+  // catch (_) {} with zero signal, exactly the bug class that hid the wake
+  // listener issues for so long.
+  String? reminderError;
   String? wakeModelVersion;
   bool wakeWordAvailable = !kIsWeb;
   final List<Timer> _nudgeTimers = [];
@@ -1049,7 +1054,10 @@ class AppState extends ChangeNotifier {
         tasks: open,
         wakeName: _wakeName,
       );
-    } catch (_) {}
+      reminderError = NotificationService.instance.lastSchedulingError;
+    } catch (e) {
+      reminderError = 'Reminder scheduling failed: $e';
+    }
     final now = DateTime.now();
     for (final task in open) {
       final dueRaw = task['due_at'] as String?;

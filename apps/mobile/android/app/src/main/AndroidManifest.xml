@@ -8,6 +8,11 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE"/>
     <uses-permission android:name="android.permission.WAKE_LOCK"/>
+    <!-- Round 9: task reminders are time-critical (fire ~12 min before a
+         due task/appointment). Inexact alarms have no delivery-time
+         guarantee on Android 12+ and can be deferred by several minutes,
+         which can consume the whole lead window. Exact alarms fix this. -->
+    <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM"/>
     <application
         android:label="AiPal"
         android:name="${applicationName}"

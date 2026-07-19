@@ -18,6 +18,14 @@ class NotificationService {
 
   NudgeForegroundCallback? onForegroundNudge;
 
+  /// Round 9: diagnosable state for reminder scheduling, since silent
+  /// failures here (missing permission, plugin error) previously looked
+  /// identical to "reminder just didn't fire" with zero signal to debug.
+  String? lastSchedulingError;
+  bool exactAlarmsGranted = false;
+  int lastScheduledCount = 0;
+  int lastSkippedCount = 0;
+
   Future<void> init({NudgeForegroundCallback? onForegroundNudge}) async {
     this.onForegroundNudge = onForegroundNudge;
     tz.initializeTimeZones();
@@ -27,6 +35,35 @@ class NotificationService {
       const InitializationSettings(android: android, iOS: ios),
       onDidReceiveNotificationResponse: _onNotificationResponse,
     );
+  }
+
+  /// Requests the two runtime permissions reminders actually need, independent
+  /// of whether the user has wake-word enabled (previously general
+  /// notification permission was only ever requested as a side effect of the
+  /// wake-word foreground service, so a user who never enabled Hi Pal could
+  /// have reminders silently scheduled but never shown -- Android drops
+  /// notifications with zero error when permission is denied).
+  ///
+  /// Exact-alarm permission is separately required so task nudges can use
+  /// AndroidScheduleMode.exactAllowWhileIdle -- inexact alarms have no
+  /// delivery-time guarantee and can be deferred by several minutes on
+  /// Android 12+, which can eat the entire ~12 minute lead window.
+  Future<void> requestReminderPermissions() async {
+    final androidImpl = _plugin.resolvePlatformSpecificImplementation<
+        AndroidFlutterLocalNotificationsPlugin>();
+    if (androidImpl == null) return;
+    try {
+      await androidImpl.requestNotificationsPermission();
+    } catch (e) {
+      lastSchedulingError = 'Notification permission request failed: $e';
+    }
+    try {
+      exactAlarmsGranted =
+          await androidImpl.requestExactAlarmsPermission() ?? false;
+    } catch (e) {
+      lastSchedulingError = 'Exact alarm permission request failed: $e';
+      exactAlarmsGranted = false;
+    }
   }
 
   void _onNotificationResponse(NotificationResponse response) {
@@ -78,6 +115,9 @@ class NotificationService {
     required List<Map<String, dynamic>> tasks,
     required String wakeName,
   }) async {
+    lastSchedulingError = null;
+    lastScheduledCount = 0;
+    lastSkippedCount = 0;
     for (var i = 0; i < 200; i++) {
       await _plugin.cancel(_taskNudgeBaseId + i);
     }
@@ -130,39 +170,53 @@ class NotificationService {
         ? Int64List.fromList([0, 400, 300, 400])  // Long-short-long pattern for urgent
         : Int64List.fromList([0, 200, 200]);       // Short pattern for normal
       
-      await _plugin.zonedSchedule(
-        notifId,
-        'AiPal',
-        'Hi $wakeName, $nudgeLeadMinutes min to $title',
-        fireAt,
-        NotificationDetails(
-          android: AndroidNotificationDetails(
-            'aipal_nudges',
-            'Task reminders',
-            channelDescription: 'Reminders before scheduled tasks',
-            vibrationPattern: vibrationPattern,
-            enableVibration: true,
-            importance: isUrgent ? Importance.max : Importance.defaultImportance,
-            priority: isUrgent ? Priority.max : Priority.defaultPriority,
-            styleInformation: BigTextStyleInformation(
-              'Reminder: $title in $nudgeLeadMinutes minutes',
-              contentTitle: title,
-              summaryText: urgency == 'high' ? '🔴 Urgent' : urgency == 'low' ? '🟢 Low Priority' : '🟡 Normal',
+      try {
+        await _plugin.zonedSchedule(
+          notifId,
+          'AiPal',
+          'Hi $wakeName, $nudgeLeadMinutes min to $title',
+          fireAt,
+          NotificationDetails(
+            android: AndroidNotificationDetails(
+              'aipal_nudges',
+              'Task reminders',
+              channelDescription: 'Reminders before scheduled tasks',
+              vibrationPattern: vibrationPattern,
+              enableVibration: true,
+              importance: isUrgent ? Importance.max : Importance.defaultImportance,
+              priority: isUrgent ? Priority.max : Priority.defaultPriority,
+              styleInformation: BigTextStyleInformation(
+                'Reminder: $title in $nudgeLeadMinutes minutes',
+                contentTitle: title,
+                summaryText: urgency == 'high' ? '🔴 Urgent' : urgency == 'low' ? '🟢 Low Priority' : '🟡 Normal',
+              ),
+            ),
+            iOS: DarwinNotificationDetails(
+              presentAlert: true,
+              presentSound: true,
+              presentBadge: true,
+              subtitle: title,
+              sound: isUrgent ? 'notification_urgent.mp3' : 'notification_default.mp3',
             ),
           ),
-          iOS: DarwinNotificationDetails(
-            presentAlert: true,
-            presentSound: true,
-            presentBadge: true,
-            subtitle: title,
-            sound: isUrgent ? 'notification_urgent.mp3' : 'notification_default.mp3',
-          ),
-        ),
-        androidScheduleMode: AndroidScheduleMode.inexactAllowWhileIdle,
-        uiLocalNotificationDateInterpretation: UILocalNotificationDateInterpretation.absoluteTime,
-        payload: 'nudge:$id:$nudgeLeadMinutes:$urgency',
-      );
-      scheduled++;
+          // Round 9: was inexactAllowWhileIdle -- Android gives NO delivery-time
+          // guarantee for inexact alarms (can defer by several minutes under
+          // Doze/battery optimization), which could silently consume this
+          // reminder's entire ~12 minute lead window. Task nudges are
+          // time-critical, so use exact mode once permission is granted.
+          androidScheduleMode: exactAlarmsGranted
+              ? AndroidScheduleMode.exactAllowWhileIdle
+              : AndroidScheduleMode.inexactAllowWhileIdle,
+          uiLocalNotificationDateInterpretation:
+              UILocalNotificationDateInterpretation.absoluteTime,
+          payload: 'nudge:$id:$nudgeLeadMinutes:$urgency',
+        );
+        scheduled++;
+        lastScheduledCount++;
+      } catch (e) {
+        lastSchedulingError = 'Failed to schedule nudge for task $id: $e';
+        lastSkippedCount++;
+      }
     }
   }
 

@@ -52,6 +52,7 @@ class _CompanionScreenState extends State<CompanionScreen> {
       'wakeWordListening=${state.wakeWordListening}',
       'wakeWordError=${state.wakeWordError ?? "none"}',
       'liveError=${state.liveError ?? "none"}',
+      'reminderError=${state.reminderError ?? "none"}',
       'last transitions:',
       transitions.isEmpty ? '(none)' : transitions,
     ].join('\n');

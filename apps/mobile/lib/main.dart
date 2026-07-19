@@ -38,6 +38,14 @@ void main() async {
       onForegroundNudge: (taskId, minutes) =>
           appState.handleForegroundNudge(taskId, minutes),
     );
+    if (!kIsWeb && defaultTargetPlatform == TargetPlatform.android) {
+      // Round 9: request notification + exact-alarm permission up front,
+      // independent of wake-word being enabled -- previously general
+      // notification permission was only ever requested as a side effect of
+      // the wake-word foreground service, so reminders could be silently
+      // scheduled but never shown for users who never enabled Hi Pal.
+      await NotificationService.instance.requestReminderPermissions();
+    }
   } catch (_) {
     // Notifications optional — must not block app launch (APK sideload / web).
   }

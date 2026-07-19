@@ -743,6 +743,51 @@ though it was handled securely on the infra side.
 
 ---
 
+---
+
+## Round 9 continued (2026-07-19): Task reminders — fixed missing/late notifications
+
+**Bug reported**: user set an appointment expecting a reminder ≥10 minutes before,
+but nothing fired.
+
+**Root causes found (code evidence, not guessed)**:
+1. All task-nudge notifications were scheduled with
+   `AndroidScheduleMode.inexactAllowWhileIdle`. Android gives **no delivery-time
+   guarantee** for inexact alarms — they can be deferred by several minutes under
+   Doze/battery optimization, especially on aggressive-OEM devices. With only a
+   12-minute lead time (`NotificationService.nudgeLeadMinutes`), this delay could
+   consume the entire window, making the reminder appear to never fire.
+2. `AndroidManifest.xml` never declared `SCHEDULE_EXACT_ALARM`, and nothing in the
+   app ever requested it or general notification permission independently of the
+   wake-word foreground service. A user who never enabled Hi Pal could have
+   reminders silently scheduled but never *shown* — Android drops notifications
+   with zero error when permission is denied.
+3. `_rescheduleTaskNudges()` in `app_state.dart` wrapped the actual scheduling call
+   in a silent `catch (_) {}`, so any of the above failures produced zero
+   diagnostic signal — the same anti-pattern that hid the wake-word bugs for so
+   long.
+
+**Fix shipped**:
+- Added `SCHEDULE_EXACT_ALARM` permission to `AndroidManifest.xml`.
+- `NotificationService.requestReminderPermissions()` (new) requests both general
+  notification permission and exact-alarm permission on app startup, independent
+  of wake-word state. Called from `main.dart` right after notification init.
+- Task-nudge `zonedSchedule(...)` now uses `AndroidScheduleMode.exactAllowWhileIdle`
+  once exact-alarm permission is granted (falls back to inexact otherwise, so it
+  never regresses below previous behavior).
+- Replaced the silent `catch (_) {}` with a new `AppState.reminderError` field
+  (mirrors the existing `wakeWordError` diagnostic pattern) and `NotificationService`
+  now tracks `lastSchedulingError`/`lastScheduledCount`/`lastSkippedCount`.
+  `reminderError` is now included in the Copy Diagnostics long-press action.
+
+Validated: `flutter analyze` clean, `flutter test` 29/29 passing.
+
+**Ask user to test**: create a task with a due time ≥20 minutes out, confirm the
+reminder now fires close to the expected time. If it still doesn't, long-press the
+status chip → Copy diagnostics → check the `reminderError` line for the exact cause.
+
+---
+
 ## Related docs
 
 - [Wake word decision](./decisions/wake-word-engine.md)
