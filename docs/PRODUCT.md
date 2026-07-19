@@ -705,6 +705,44 @@ reliability.
 
 ---
 
+
+## Round 9 continued (2026-07-19): LLM provider switched to Claude Haiku 4.5
+
+Implemented the LLM recommendation from earlier this round: added a proper Anthropic
+provider (`_anthropic_chat`/`_anthropic_stream` in `llm_provider.py`, using Anthropic's
+Messages API with real SSE streaming) alongside the existing DeepSeek/Ollama paths,
+following the same shape as `_deepseek_chat`/`_deepseek_stream`. Added
+`anthropic_api_key`/`anthropic_model` settings fields. Production is now configured
+with `LLM_PROVIDER=anthropic`, model `claude-haiku-4-5`, with DeepSeek kept as the
+documented fallback provider (`LLM_FALLBACK_PROVIDER=deepseek`) and Ollama as the
+last-resort path if no cloud key is set.
+
+Why: DeepSeek (previously the intended provider, but never actually active due to an
+empty API key silently falling back to Ollama) has the worst time-to-first-token of
+the compared options (~3.6s) for a real-time voice assistant. Claude Haiku 4.5 has
+the best (~0.6s TTFT) at a per-turn cost that's trivial given AiPal's small per-turn
+token budget (180-token cap on voice replies).
+
+Validated: `pytest` 77/77 passing, deployed to `/opt/aipal-v2`, service restarted and
+healthy (`GET /api/v2/health` → `"llm_provider":"anthropic"`), smoke test passed with
+a live end-to-end text turn — logs confirm real `200 OK` responses from
+`api.anthropic.com` with ~1.7-2s total round-trip latency (well under DeepSeek's
+typical latency for the same call shape).
+
+**Not yet done**: this only swaps the underlying provider (drop-in replacement) — it
+does not yet wire early-TTS/streaming playback end-to-end (that's Phase A/B of the
+Latency Roadmap above, still blocked pending live on-device testing availability).
+Real Anthropic token streaming is implemented and available via `llm_stream()`/
+`_anthropic_stream()` for whenever that phase is picked up.
+
+The `ANTHROPIC_API_KEY` secret was provided by the user directly in chat and written
+only to the VM's `/etc/default/aipal-v2` (never committed to git, never written to
+the local machine). **Recommendation**: since the key appeared in this chat's
+transcript, consider rotating it via the Anthropic console once convenient, even
+though it was handled securely on the infra side.
+
+---
+
 ## Related docs
 
 - [Wake word decision](./decisions/wake-word-engine.md)

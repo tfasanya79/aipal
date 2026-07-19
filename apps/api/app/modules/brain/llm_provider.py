@@ -41,7 +41,9 @@ async def llm_chat(messages: list[dict[str, str]], *, max_tokens: int = _VOICE_M
     provider = settings.llm_provider.lower()
     t0 = time.monotonic()
     try:
-        if provider == "deepseek" and settings.deepseek_api_key:
+        if provider == "anthropic" and settings.anthropic_api_key:
+            result = await _anthropic_chat(messages, max_tokens=max_tokens)
+        elif provider == "deepseek" and settings.deepseek_api_key:
             result = await _deepseek_chat(messages, max_tokens=max_tokens)
         else:
             result = await _ollama_chat(messages, max_tokens=max_tokens)
@@ -60,7 +62,10 @@ async def llm_stream(
     Callers can collect the full response or act on the first complete sentence.
     """
     provider = settings.llm_provider.lower()
-    if provider == "deepseek" and settings.deepseek_api_key:
+    if provider == "anthropic" and settings.anthropic_api_key:
+        async for chunk in _anthropic_stream(messages, max_tokens=max_tokens):
+            yield chunk
+    elif provider == "deepseek" and settings.deepseek_api_key:
         async for chunk in _deepseek_stream(messages, max_tokens=max_tokens):
             yield chunk
     else:
@@ -75,6 +80,77 @@ async def llm_chat_json(messages: list[dict[str, str]]) -> dict:
     if m := re.search(r"\{[\s\S]*\}", text):
         text = m.group(0)
     return json.loads(text)
+
+
+async def _anthropic_messages_payload(messages: list[dict[str, str]], *, max_tokens: int) -> dict:
+    """Anthropic's Messages API takes `system` as a top-level field, not a system-role message."""
+    return {
+        "model": settings.anthropic_model,
+        "system": SYSTEM_PROMPT,
+        "messages": messages,
+        "max_tokens": max_tokens,
+    }
+
+
+async def _anthropic_chat(messages: list[dict[str, str]], *, max_tokens: int) -> str:
+    payload = await _anthropic_messages_payload(messages, max_tokens=max_tokens)
+    async with httpx.AsyncClient(timeout=60.0) as client:
+        resp = await client.post(
+            "https://api.anthropic.com/v1/messages",
+            headers={
+                "x-api-key": settings.anthropic_api_key,
+                "anthropic-version": "2023-06-01",
+                "content-type": "application/json",
+            },
+            json=payload,
+        )
+        resp.raise_for_status()
+        data = resp.json()
+        return "".join(block.get("text", "") for block in data.get("content", []))
+
+
+async def _anthropic_stream(
+    messages: list[dict[str, str]], *, max_tokens: int
+) -> AsyncGenerator[str, None]:
+    payload = await _anthropic_messages_payload(messages, max_tokens=max_tokens)
+    payload["stream"] = True
+    t_first: float | None = None
+    t0 = time.monotonic()
+    async with httpx.AsyncClient(timeout=60.0) as client:
+        async with client.stream(
+            "POST",
+            "https://api.anthropic.com/v1/messages",
+            headers={
+                "x-api-key": settings.anthropic_api_key,
+                "anthropic-version": "2023-06-01",
+                "content-type": "application/json",
+            },
+            json=payload,
+        ) as resp:
+            resp.raise_for_status()
+            async for line in resp.aiter_lines():
+                if not line.startswith("data:"):
+                    continue
+                raw = line[5:].strip()
+                if not raw:
+                    continue
+                try:
+                    data = json.loads(raw)
+                except Exception:
+                    continue
+                if data.get("type") != "content_block_delta":
+                    continue
+                token = data.get("delta", {}).get("text") or ""
+                if token:
+                    if t_first is None:
+                        t_first = time.monotonic()
+                        log.info(
+                            "llm_stream(anthropic) time_to_first_token_ms=%d",
+                            int((t_first - t0) * 1000),
+                        )
+                    yield token
+    elapsed_ms = int((time.monotonic() - t0) * 1000)
+    log.info("llm_stream(anthropic) total_latency_ms=%d max_tokens=%d", elapsed_ms, max_tokens)
 
 
 async def _deepseek_chat(messages: list[dict[str, str]], *, max_tokens: int) -> str:
