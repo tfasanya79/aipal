@@ -89,6 +89,11 @@ class AppState extends ChangeNotifier {
   // catch (_) {} with zero signal, exactly the bug class that hid the wake
   // listener issues for so long.
   String? reminderError;
+  // Round 10: same diagnosability pattern -- _playLiveGreeting() previously
+  // wrapped fetch + TTS + on-device playback in a single silent catch (_) {},
+  // so a playback failure (e.g. audio-focus conflict) produced no signal at
+  // all, and the Orb/wake-word activation greeting simply never played.
+  String? greetingError;
   String? wakeModelVersion;
   bool wakeWordAvailable = !kIsWeb;
   final List<Timer> _nudgeTimers = [];
@@ -1489,9 +1494,11 @@ class AppState extends ChangeNotifier {
   }
 
   Future<void> _playLiveGreeting() async {
+    greetingError = null;
+    Map<String, dynamic>? greeting;
     try {
       final showIntro = wakeWordEnabled && !await WakeWordPrefs.introShown();
-      final greeting = await api.liveGreeting(
+      greeting = await api.liveGreeting(
         inLive: true,
         wakeEnabled: wakeWordEnabled,
         showWakeIntro: showIntro,
@@ -1499,15 +1506,28 @@ class AppState extends ChangeNotifier {
       if (showIntro) {
         await WakeWordPrefs.markIntroShown();
       }
-      final text = greeting['text'] as String?;
-      if (text == null || text.isEmpty || !_inConversation) return;
-      lastReply = text;
-      notifyListeners();
-      if (!_inConversation) return;
-      final tts = await api.tts(text);
-      if (!_inConversation) return;
+    } catch (e) {
+      greetingError = 'fetch failed: $e';
+      return;
+    }
+    final text = greeting['text'] as String?;
+    if (text == null || text.isEmpty || !_inConversation) return;
+    lastReply = text;
+    notifyListeners();
+    if (!_inConversation) return;
+    Map<String, dynamic> tts;
+    try {
+      tts = await api.tts(text);
+    } catch (e) {
+      greetingError = 'tts failed: $e';
+      return;
+    }
+    if (!_inConversation) return;
+    try {
       await _playAudioResponse(tts);
-    } catch (_) {}
+    } catch (e) {
+      greetingError = 'playback failed: $e';
+    }
   }
 
   Future<void> _handleVoiceSegment(List<int> bytes) async {
