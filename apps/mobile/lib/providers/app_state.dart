@@ -1369,7 +1369,16 @@ class AppState extends ChangeNotifier {
       });
       _awaitingGreeting = true;
       notifyListeners();
-      await _playLiveGreeting();
+      // Bounded: the greeting is a nice-to-have, not a prerequisite for
+      // actually talking to AiPal. If it's slow, abandon it and let the
+      // conversation start on time rather than eating the whole 10s
+      // toggleLive() safety budget (see _playAudioResponse fix below).
+      try {
+        await _playLiveGreeting().timeout(const Duration(seconds: 6));
+      } on TimeoutException {
+        greetingError = 'timed out (fetch/tts/playback took too long)';
+        unawaited(_player.stop());
+      }
       _awaitingGreeting = false;
       if (!_inConversation) return;
       _voiceLoop = loop;
@@ -1670,7 +1679,17 @@ class AppState extends ChangeNotifier {
       sub.cancel();
       if (!completer.isCompleted) completer.complete();
     });
-    await _player.play(BytesSource(base64Decode(audioB64), mimeType: mime));
+    try {
+      await _player
+          .play(BytesSource(base64Decode(audioB64), mimeType: mime))
+          .timeout(const Duration(seconds: 5));
+    } catch (e) {
+      sub.cancel();
+      _speaking = false;
+      liveSession.state = LiveState.listening;
+      notifyListeners();
+      rethrow;
+    }
     await completer.future.timeout(
       const Duration(minutes: 2),
       onTimeout: () {},
