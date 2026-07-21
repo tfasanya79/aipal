@@ -110,6 +110,17 @@ class AppState extends ChangeNotifier {
   // TimeoutException handler below) can still report exactly how far it
   // got and how long each step took, instead of just "timed out".
   String _greetingProgress = 'not_started';
+  // Round 10 Phase 5: user confirmed the greeting itself can complete fully
+  // (greetingError=none) and the outer toggleLive() 10s guard STILL fires
+  // ("stuck connection"). That means the stall (or simply not enough
+  // remaining budget) is somewhere else in _startConversation() -- mic
+  // permission, the websocket connect, or loop.start() acquiring the mic
+  // right after the wake-word background service was asked (fire-and-forget,
+  // no acknowledgment) to release it. Track the whole sequence the same way
+  // _greetingProgress already tracks the greeting sub-steps, so the next
+  // "stuck connection" report shows exactly where time went instead of a
+  // generic message.
+  String _startConvoProgress = 'not_started';
   String? wakeModelVersion;
   bool wakeWordAvailable = !kIsWeb;
   final List<Timer> _nudgeTimers = [];
@@ -1314,7 +1325,7 @@ class AppState extends ChangeNotifier {
           _processingTurn = false;
           _speaking = false;
           _awaitingGreeting = false;
-          liveError = 'Live session reset after a stuck connection. Please try again.';
+          liveError = 'Live session reset after a stuck connection (last reached: $_startConvoProgress). Please try again.';
           _setVoiceState(
             wakeWordEnabled ? VoiceState.cooldown : VoiceState.idle,
             VoiceEvent.conversationEnded,
@@ -1331,6 +1342,8 @@ class AppState extends ChangeNotifier {
   Future<void> _startConversation() async {
     if (_inConversation) return;
     liveError = null;
+    final convoSw = Stopwatch()..start();
+    _startConvoProgress = 'suppress_wake@0ms';
     if (_isAndroid && wakeWordEnabled) {
       WakeBackgroundService.setSuppressed(true);
     } else {
@@ -1362,11 +1375,13 @@ class AppState extends ChangeNotifier {
       },
     );
     try {
+      _startConvoProgress = 'mic_permission_start@${convoSw.elapsedMilliseconds}ms';
       if (!await loop.ensureMicPermission()) {
         liveError = 'Microphone permission is required for Live voice mode.';
         notifyListeners();
         return;
       }
+      _startConvoProgress = 'mic_permission_done@${convoSw.elapsedMilliseconds}ms';
       _inConversation = true;
       _setVoiceState(
         VoiceState.listening,
@@ -1377,12 +1392,14 @@ class AppState extends ChangeNotifier {
       _consecutiveTurnTimeouts = 0;
       _softPromptShown = false;
       _lastDiscardAt = null;
+      _startConvoProgress = 'ws_connect_start@${convoSw.elapsedMilliseconds}ms';
       await liveSession.start(token!, (msg) {
         if (msg['type'] == 'reply') {
           lastReply = msg['text'] as String?;
           notifyListeners();
         }
       });
+      _startConvoProgress = 'ws_connect_done@${convoSw.elapsedMilliseconds}ms';
       _awaitingGreeting = true;
       notifyListeners();
       // Bounded: the greeting is a nice-to-have, not a prerequisite for
@@ -1390,16 +1407,20 @@ class AppState extends ChangeNotifier {
       // conversation start on time rather than eating the whole 10s
       // toggleLive() safety budget (see _playAudioResponse fix below).
       _greetingProgress = 'not_started';
+      _startConvoProgress = 'greeting_start@${convoSw.elapsedMilliseconds}ms';
       try {
         await _playLiveGreeting().timeout(const Duration(seconds: 6));
       } on TimeoutException {
         greetingError = 'timed out, last reached: $_greetingProgress';
         unawaited(_player.stop());
       }
+      _startConvoProgress = 'greeting_done@${convoSw.elapsedMilliseconds}ms';
       _awaitingGreeting = false;
       if (!_inConversation) return;
       _voiceLoop = loop;
+      _startConvoProgress = 'loop_start_start@${convoSw.elapsedMilliseconds}ms';
       await loop.start();
+      _startConvoProgress = 'loop_start_done@${convoSw.elapsedMilliseconds}ms';
       liveSession.state = LiveState.listening;
       _armConversationIdleTimer();
       notifyListeners();
