@@ -9,7 +9,8 @@ class TaskEditSheet extends StatefulWidget {
   });
 
   final Map<String, dynamic> task;
-  final Future<void> Function(DateTime dueLocal, int minutes) onSave;
+  final Future<void> Function(String title, DateTime dueLocal, int minutes)
+      onSave;
 
   static const _durationOptions = [15, 30, 45, 60, 90, 120];
 
@@ -20,6 +21,7 @@ class TaskEditSheet extends StatefulWidget {
 class _TaskEditSheetState extends State<TaskEditSheet> {
   late TimeOfDay _time;
   late int _minutes;
+  late final TextEditingController _titleController;
   bool _saving = false;
 
   @override
@@ -37,6 +39,15 @@ class _TaskEditSheetState extends State<TaskEditSheet> {
       _time = TimeOfDay.now();
     }
     _minutes = widget.task['estimated_minutes'] as int? ?? 30;
+    _titleController = TextEditingController(
+      text: widget.task['title'] as String? ?? '',
+    );
+  }
+
+  @override
+  void dispose() {
+    _titleController.dispose();
+    super.dispose();
   }
 
   DateTime _dueLocalToday() {
@@ -50,9 +61,11 @@ class _TaskEditSheetState extends State<TaskEditSheet> {
   }
 
   Future<void> _save() async {
+    final title = _titleController.text.trim();
+    if (title.isEmpty) return;
     setState(() => _saving = true);
     try {
-      await widget.onSave(_dueLocalToday(), _minutes);
+      await widget.onSave(title, _dueLocalToday(), _minutes);
       if (mounted) Navigator.pop(context);
     } finally {
       if (mounted) setState(() => _saving = false);
@@ -61,7 +74,6 @@ class _TaskEditSheetState extends State<TaskEditSheet> {
 
   @override
   Widget build(BuildContext context) {
-    final title = widget.task['title'] as String? ?? 'Task';
     final dueLabel = DateFormat.jm().format(_dueLocalToday());
 
     return Padding(
@@ -75,9 +87,17 @@ class _TaskEditSheetState extends State<TaskEditSheet> {
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Text('Edit schedule', style: Theme.of(context).textTheme.titleMedium),
-          const SizedBox(height: 8),
-          Text(title, style: TextStyle(color: Colors.white.withValues(alpha: 0.7))),
+          Text('Edit task', style: Theme.of(context).textTheme.titleMedium),
+          const SizedBox(height: 12),
+          TextField(
+            controller: _titleController,
+            textCapitalization: TextCapitalization.sentences,
+            decoration: const InputDecoration(
+              labelText: 'Title',
+              border: OutlineInputBorder(),
+              isDense: true,
+            ),
+          ),
           const SizedBox(height: 16),
           OutlinedButton.icon(
             onPressed: _pickTime,

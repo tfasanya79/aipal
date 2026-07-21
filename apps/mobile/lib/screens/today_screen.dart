@@ -88,7 +88,12 @@ class _TodayScreenState extends State<TodayScreen> {
       backgroundColor: const Color(0xFF161B22),
       builder: (_) => TaskEditSheet(
         task: task,
-        onSave: (due, mins) => state.updateTaskSchedule(task['id'] as int, due, mins),
+        onSave: (title, due, mins) => state.updateTaskSchedule(
+          task['id'] as int,
+          due,
+          mins,
+          title: title,
+        ),
       ),
     );
   }

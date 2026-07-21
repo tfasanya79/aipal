@@ -1152,11 +1152,13 @@ class AppState extends ChangeNotifier {
   Future<void> updateTaskSchedule(
     int id,
     DateTime dueLocal,
-    int minutes,
-  ) async {
+    int minutes, {
+    String? title,
+  }) async {
     await api.updateTask(id, {
       'due_at': dueLocal.toUtc().toIso8601String(),
       'estimated_minutes': minutes,
+      if (title != null && title.isNotEmpty) 'title': title,
     });
     await refreshTodayView();
   }
