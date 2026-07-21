@@ -45,7 +45,18 @@ class AppState extends ChangeNotifier {
     }
   }
 
-  final _storage = const FlutterSecureStorage();
+  // Round 10 Phase 3: `resetOnError: true` is flutter_secure_storage's
+  // official recovery flag for exactly the failure mode we hit in production
+  // -- BadPaddingException / OPENSSL_internal:BAD_DECRYPT thrown when the
+  // Android Keystore-backed cipher key can no longer decrypt previously
+  // stored data (e.g. after a backup/restore to a new device, or the OS
+  // invalidating the key). Without this, every read/write on this storage
+  // keeps throwing forever with no way for the app to recover; with it, the
+  // plugin clears the corrupted data on the first error (forcing a one-time
+  // re-login/re-onboard) and every call afterwards works normally again.
+  final _storage = const FlutterSecureStorage(
+    aOptions: AndroidOptions(resetOnError: true),
+  );
   bool authReady = false;
   String? token;
   Map<String, dynamic>? profile;

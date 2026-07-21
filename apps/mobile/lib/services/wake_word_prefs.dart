@@ -6,7 +6,14 @@ class WakeWordPrefs {
   static const _introKey = 'wake_word_intro_shown';
   static const _enrolledKey = 'wake_word_enrolled';
   static const _calibratedThresholdKey = 'wake_threshold_calibrated';
-  static const _storage = FlutterSecureStorage();
+  // Round 10 Phase 3: see the matching comment in app_state.dart -- this
+  // self-heals the Android Keystore BadPaddingException/BAD_DECRYPT failure
+  // that was misreported as "greetingError=fetch failed" (introShown() lives
+  // in the same try block as the greeting fetch, so its real exception was
+  // being mislabeled).
+  static const _storage = FlutterSecureStorage(
+    aOptions: AndroidOptions(resetOnError: true),
+  );
 
   static Future<bool> isEnabled() async {
     final v = await _storage.read(key: _enabledKey);
