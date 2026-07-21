@@ -105,6 +105,11 @@ class AppState extends ChangeNotifier {
   // so a playback failure (e.g. audio-focus conflict) produced no signal at
   // all, and the Orb/wake-word activation greeting simply never played.
   String? greetingError;
+  // Round 10 Phase 4: last-completed step + elapsed ms for the greeting
+  // sequence, so a timeout (which itself throws no exception -- see the
+  // TimeoutException handler below) can still report exactly how far it
+  // got and how long each step took, instead of just "timed out".
+  String _greetingProgress = 'not_started';
   String? wakeModelVersion;
   bool wakeWordAvailable = !kIsWeb;
   final List<Timer> _nudgeTimers = [];
@@ -1384,10 +1389,11 @@ class AppState extends ChangeNotifier {
       // actually talking to AiPal. If it's slow, abandon it and let the
       // conversation start on time rather than eating the whole 10s
       // toggleLive() safety budget (see _playAudioResponse fix below).
+      _greetingProgress = 'not_started';
       try {
         await _playLiveGreeting().timeout(const Duration(seconds: 6));
       } on TimeoutException {
-        greetingError = 'timed out (fetch/tts/playback took too long)';
+        greetingError = 'timed out, last reached: $_greetingProgress';
         unawaited(_player.stop());
       }
       _awaitingGreeting = false;
@@ -1515,19 +1521,23 @@ class AppState extends ChangeNotifier {
 
   Future<void> _playLiveGreeting() async {
     greetingError = null;
+    final sw = Stopwatch()..start();
+    _greetingProgress = 'intro_check@0ms';
     Map<String, dynamic>? greeting;
     try {
       final showIntro = wakeWordEnabled && !await WakeWordPrefs.introShown();
+      _greetingProgress = 'fetch_start@${sw.elapsedMilliseconds}ms';
       greeting = await api.liveGreeting(
         inLive: true,
         wakeEnabled: wakeWordEnabled,
         showWakeIntro: showIntro,
       );
+      _greetingProgress = 'fetch_done@${sw.elapsedMilliseconds}ms';
       if (showIntro) {
         await WakeWordPrefs.markIntroShown();
       }
     } catch (e) {
-      greetingError = 'fetch failed: $e';
+      greetingError = 'fetch failed at ${sw.elapsedMilliseconds}ms: $e';
       return;
     }
     final text = greeting['text'] as String?;
@@ -1537,16 +1547,20 @@ class AppState extends ChangeNotifier {
     if (!_inConversation) return;
     Map<String, dynamic> tts;
     try {
+      _greetingProgress = 'tts_start@${sw.elapsedMilliseconds}ms';
       tts = await api.tts(text);
+      _greetingProgress = 'tts_done@${sw.elapsedMilliseconds}ms';
     } catch (e) {
-      greetingError = 'tts failed: $e';
+      greetingError = 'tts failed at ${sw.elapsedMilliseconds}ms: $e';
       return;
     }
     if (!_inConversation) return;
     try {
+      _greetingProgress = 'playback_start@${sw.elapsedMilliseconds}ms';
       await _playAudioResponse(tts);
+      _greetingProgress = 'playback_done@${sw.elapsedMilliseconds}ms';
     } catch (e) {
-      greetingError = 'playback failed: $e';
+      greetingError = 'playback failed at ${sw.elapsedMilliseconds}ms: $e';
     }
   }
 
