@@ -67,4 +67,103 @@ void main() {
       startsWith('invalid_transition:'),
     );
   });
+
+  // Regression tests for a real production bug (build 126, 2026-07-21):
+  // _endConversation() in app_state.dart transitions to VoiceState.idle
+  // whenever wake word is disabled, regardless of which active-conversation
+  // state the app was in when the conversation ended (listening, recording,
+  // thinking, or speaking). Only VoiceState.listening allowed a transition to
+  // idle -- ending a conversation while recording/thinking/speaking (e.g. a
+  // turn that finishes mid-processing, or a mid-TTS interruption) silently
+  // failed the transition and left `state` permanently wedged, which then
+  // also rejected every subsequent wake-route transition attempt checked
+  // against that stale state.
+  test('voice orchestrator allows recording -> idle via conversationEnded', () {
+    final orchestrator = VoiceOrchestrator();
+    orchestrator.transitionTo(
+      VoiceState.wakeListening,
+      event: VoiceEvent.wakeRouteActivated,
+      reason: 'wake enabled',
+    );
+    orchestrator.transitionTo(
+      VoiceState.listening,
+      event: VoiceEvent.conversationStarted,
+      reason: 'conversation started',
+    );
+    orchestrator.transitionTo(
+      VoiceState.recording,
+      event: VoiceEvent.speechDetected,
+      reason: 'vad_speech_start',
+    );
+
+    final changed = orchestrator.transitionTo(
+      VoiceState.idle,
+      event: VoiceEvent.conversationEnded,
+      reason: 'conversation_ended',
+    );
+
+    expect(changed, isTrue);
+    expect(orchestrator.state, VoiceState.idle);
+  });
+
+  test('voice orchestrator allows thinking -> idle via conversationEnded', () {
+    final orchestrator = VoiceOrchestrator();
+    orchestrator.transitionTo(
+      VoiceState.wakeListening,
+      event: VoiceEvent.wakeRouteActivated,
+      reason: 'wake enabled',
+    );
+    orchestrator.transitionTo(
+      VoiceState.listening,
+      event: VoiceEvent.conversationStarted,
+      reason: 'conversation started',
+    );
+    orchestrator.transitionTo(
+      VoiceState.thinking,
+      event: VoiceEvent.turnProcessingStarted,
+      reason: 'turn processing',
+    );
+
+    final changed = orchestrator.transitionTo(
+      VoiceState.idle,
+      event: VoiceEvent.conversationEnded,
+      reason: 'conversation_ended',
+    );
+
+    expect(changed, isTrue);
+    expect(orchestrator.state, VoiceState.idle);
+  });
+
+  test('voice orchestrator allows speaking -> idle via conversationEnded', () {
+    final orchestrator = VoiceOrchestrator();
+    orchestrator.transitionTo(
+      VoiceState.wakeListening,
+      event: VoiceEvent.wakeRouteActivated,
+      reason: 'wake enabled',
+    );
+    orchestrator.transitionTo(
+      VoiceState.listening,
+      event: VoiceEvent.conversationStarted,
+      reason: 'conversation started',
+    );
+    orchestrator.transitionTo(
+      VoiceState.thinking,
+      event: VoiceEvent.turnProcessingStarted,
+      reason: 'turn processing',
+    );
+    orchestrator.transitionTo(
+      VoiceState.speaking,
+      event: VoiceEvent.ttsStarted,
+      reason: 'tts started',
+    );
+
+    final changed = orchestrator.transitionTo(
+      VoiceState.idle,
+      event: VoiceEvent.conversationEnded,
+      reason: 'conversation_ended',
+    );
+
+    expect(changed, isTrue);
+    expect(orchestrator.state, VoiceState.idle);
+  });
 }

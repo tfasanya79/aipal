@@ -119,17 +119,30 @@ class VoiceOrchestrator {
         VoiceState.thinking,
         VoiceState.listening,
         VoiceState.cooldown,
+        // Bug fix (evidence: production diagnostics showed voiceState
+        // permanently wedged at "recording" -- _endConversation() targets
+        // idle whenever wake word is disabled, from whatever state the
+        // conversation happened to be in when it ended (listening,
+        // recording, thinking, or speaking). Only "listening" had a path to
+        // idle; ending a conversation mid-recording with wake word off hit
+        // an invalid_transition and never actually left "recording", which
+        // then also silently rejected every subsequent wake-route
+        // activation attempt since recording didn't allow wakeListening
+        // either.
+        VoiceState.idle,
         VoiceState.error,
       },
       VoiceState.thinking: {
         VoiceState.speaking,
         VoiceState.listening,
         VoiceState.cooldown,
+        VoiceState.idle, // see recording's idle entry above -- same bug/fix.
         VoiceState.error,
       },
       VoiceState.speaking: {
         VoiceState.listening,
         VoiceState.cooldown,
+        VoiceState.idle, // see recording's idle entry above -- same bug/fix.
         VoiceState.error,
       },
       VoiceState.cooldown: {
