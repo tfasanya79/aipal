@@ -11,13 +11,11 @@ class Settings(BaseSettings):
     jwt_expire_minutes: int = 60 * 24 * 7
     aipal_env: str = "development"
     magic_link_dev_return_token: bool = True
-    llm_provider: str = "deepseek"
-    llm_fallback_provider: str = "ollama"
+    llm_provider: str = "anthropic"
+    llm_fallback_provider: str = "deepseek"
     deepseek_api_key: str = ""
     anthropic_api_key: str = ""
     anthropic_model: str = "claude-haiku-4-5"
-    ollama_base_url: str = "http://127.0.0.1:11434"
-    ollama_model: str = "llama3.2:3b"
     whisper_model: str = "base"
     mem0_enabled: bool = True
     cors_origins: str = "*"

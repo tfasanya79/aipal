@@ -37,19 +37,33 @@ SYSTEM_PROMPT = (
 )
 
 
+async def _dispatch_chat(provider: str, messages: list[dict[str, str]], *, max_tokens: int) -> str:
+    if provider == "anthropic" and settings.anthropic_api_key:
+        return await _anthropic_chat(messages, max_tokens=max_tokens)
+    if provider == "deepseek" and settings.deepseek_api_key:
+        return await _deepseek_chat(messages, max_tokens=max_tokens)
+    raise RuntimeError(f"LLM provider '{provider}' is not configured (missing API key or unsupported)")
+
+
 async def llm_chat(messages: list[dict[str, str]], *, max_tokens: int = _VOICE_MAX_TOKENS) -> str:
     provider = settings.llm_provider.lower()
+    used_provider = provider
     t0 = time.monotonic()
     try:
-        if provider == "anthropic" and settings.anthropic_api_key:
-            result = await _anthropic_chat(messages, max_tokens=max_tokens)
-        elif provider == "deepseek" and settings.deepseek_api_key:
-            result = await _deepseek_chat(messages, max_tokens=max_tokens)
-        else:
-            result = await _ollama_chat(messages, max_tokens=max_tokens)
+        result = await _dispatch_chat(provider, messages, max_tokens=max_tokens)
+    except Exception as exc:
+        fallback = settings.llm_fallback_provider.lower()
+        if not fallback or fallback == provider:
+            raise
+        log.warning(
+            "llm_chat primary provider=%s failed (%s); falling back to provider=%s",
+            provider, exc, fallback,
+        )
+        used_provider = fallback
+        result = await _dispatch_chat(fallback, messages, max_tokens=max_tokens)
     finally:
         elapsed_ms = int((time.monotonic() - t0) * 1000)
-        log.info("llm_chat latency_ms=%d max_tokens=%d", elapsed_ms, max_tokens)
+        log.info("llm_chat provider=%s latency_ms=%d max_tokens=%d", used_provider, elapsed_ms, max_tokens)
     return result
 
 
@@ -58,10 +72,39 @@ async def llm_stream(
 ) -> AsyncGenerator[str, None]:
     """Async generator yielding text tokens as they arrive from the LLM.
 
-    Falls back to a single-shot yield when streaming is unavailable (Ollama local).
+    Falls back automatically from the primary provider to the configured fallback
+    provider (see settings.llm_fallback_provider) if the primary errors before yielding
+    any tokens.
     Callers can collect the full response or act on the first complete sentence.
     """
     provider = settings.llm_provider.lower()
+    started = False
+    try:
+        async for chunk in _dispatch_stream(provider, messages, max_tokens=max_tokens):
+            started = True
+            yield chunk
+    except Exception as exc:
+        if started:
+            # Already yielded partial tokens (e.g. to early-TTS) - unsafe to restart the reply
+            # from a different provider mid-stream, so surface the failure instead of retrying.
+            log.error(
+                "llm_stream provider=%s failed mid-stream after partial output: %s", provider, exc
+            )
+            raise
+        fallback = settings.llm_fallback_provider.lower()
+        if not fallback or fallback == provider:
+            raise
+        log.warning(
+            "llm_stream primary provider=%s failed before first token (%s); falling back to provider=%s",
+            provider, exc, fallback,
+        )
+        async for chunk in _dispatch_stream(fallback, messages, max_tokens=max_tokens):
+            yield chunk
+
+
+async def _dispatch_stream(
+    provider: str, messages: list[dict[str, str]], *, max_tokens: int
+) -> AsyncGenerator[str, None]:
     if provider == "anthropic" and settings.anthropic_api_key:
         async for chunk in _anthropic_stream(messages, max_tokens=max_tokens):
             yield chunk
@@ -69,9 +112,7 @@ async def llm_stream(
         async for chunk in _deepseek_stream(messages, max_tokens=max_tokens):
             yield chunk
     else:
-        # Ollama: collect full response and yield as one chunk (streaming optional future work)
-        full = await _ollama_chat(messages, max_tokens=max_tokens)
-        yield full
+        raise RuntimeError(f"LLM provider '{provider}' is not configured (missing API key or unsupported)")
 
 
 async def llm_chat_json(messages: list[dict[str, str]]) -> dict:
@@ -204,18 +245,3 @@ async def _deepseek_stream(
                     yield token
     elapsed_ms = int((time.monotonic() - t0) * 1000)
     log.info("llm_stream total_latency_ms=%d max_tokens=%d", elapsed_ms, max_tokens)
-
-
-async def _ollama_chat(messages: list[dict[str, str]], *, max_tokens: int) -> str:
-    async with httpx.AsyncClient(timeout=120.0) as client:
-        resp = await client.post(
-            f"{settings.ollama_base_url}/api/chat",
-            json={
-                "model": settings.ollama_model,
-                "messages": [{"role": "system", "content": SYSTEM_PROMPT}, *messages],
-                "stream": False,
-                "options": {"num_predict": max_tokens},
-            },
-        )
-        resp.raise_for_status()
-        return resp.json()["message"]["content"]

@@ -35,16 +35,17 @@ ansible-playbook -i inventory.ini playbooks/deploy.yml
 - Inventory uses SSH key `~/.ssh/tencent_teems_ed25519.pem`.
 - Remote user is `teems` with passwordless sudo.
 - Deployment playbook syncs this local repo to `/opt/aipal` on the VM.
-- Docker-based Ollama stays local-only; Caddy reverse-proxies public HTTPS to `127.0.0.1:8101`.
+- Caddy reverse-proxies public HTTPS to `127.0.0.1:8101`.
 - Emergency/manual maintenance has also been performed through `root` SSH using the same VM, but Ansible should remain the preferred repeatable deploy path.
 
-## LLM provider switch (Ollama / DeepSeek)
+## LLM provider switch (Anthropic / DeepSeek)
 
-Set these in `infra/group_vars/all.yml` before deploy:
+Set these in `/etc/default/aipal-v2` (production) or `apps/api/.env` (local dev):
 
-- `aipal_llm_provider`: `ollama` or `deepseek`
-- `DEEPSEEK_API_KEY` environment variable in the deploy shell: required when provider is `deepseek`
-- `aipal_deepseek_model`: for example `deepseek-chat`
+- `LLM_PROVIDER`: `anthropic` (primary) or `deepseek`
+- `LLM_FALLBACK_PROVIDER`: `deepseek` (automatically used if the primary provider call fails)
+- `ANTHROPIC_API_KEY` / `ANTHROPIC_MODEL`: required when provider is `anthropic`
+- `DEEPSEEK_API_KEY`: required for the fallback (or as primary if `LLM_PROVIDER=deepseek`)
 
 Then redeploy:
 

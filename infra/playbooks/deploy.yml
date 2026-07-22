@@ -84,18 +84,6 @@
         state: started
         enabled: true
 
-    - name: Start Ollama container
-      ansible.builtin.command:
-        cmd: docker compose up -d ollama
-        chdir: "{{ aipal_deploy_dir }}"
-      changed_when: false
-
-    - name: Pull configured Ollama model
-      ansible.builtin.command:
-        cmd: docker compose exec -T ollama ollama pull {{ aipal_ollama_model }}
-        chdir: "{{ aipal_deploy_dir }}"
-      changed_when: false
-
     - name: Install AIpal environment file
       ansible.builtin.template:
         src: ../templates/aipal.env.j2
