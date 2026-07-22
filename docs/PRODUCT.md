@@ -836,6 +836,81 @@ noticeably snappier, especially for longer, multi-sentence responses.
 
 ---
 
+## 2026-07-22: mem0 memory fix, Anthropic->DeepSeek fallback wired, Ollama fully removed
+
+**Trigger**: user asked for the companion's intelligence/smartness to be "carefully looked
+into, and enhanced", and separately to remove Ollama (confusing/dead, since the app now runs
+on Anthropic-primary/DeepSeek-fallback) and to clean up unnecessary files.
+
+**Root cause found (biggest impact item, confirmed by direct live testing, not guessed)**:
+long-term memory (mem0) had been a complete no-op in production since it was introduced.
+`get_memory()` called bare `Memory()`, which defaults to requiring `OPENAI_API_KEY` for both
+its embedder and internal fact-extraction LLM -- a key this app has never set (it uses
+Anthropic/DeepSeek). Every `memory_add`/`memory_search` call was silently failing
+("Mem0 unavailable: Missing credentials... OPENAI_API_KEY"), meaning the companion has never
+actually remembered anything across conversations, despite the plumbing looking complete.
+
+**Fix**: `get_memory()` now builds an explicit `Memory.from_config()`:
+- Embedder: `fastembed` (local ONNX model `BAAI/bge-small-en-v1.5`, 384-dim) -- no API key,
+  no GPU, runs in-process.
+- Internal LLM (mem0's own fact-extraction step): reuses the app's already-configured
+  Anthropic key/model, falling back to DeepSeek if Anthropic isn't set -- no new credentials
+  needed.
+- Vector store: local Qdrant at `~/.aipal/mem0_qdrant` (resolves to `/home/teems/...` in
+  production since the systemd service runs as `User=teems`) -- deliberately placed outside
+  `/opt/aipal-v2/apps/api/` so a future backend deploy's `rsync --delete` can never wipe
+  stored memories.
+- Also fixed `memory_search()`'s call for the installed `mem0ai` version's actual API
+  (`filters={"user_id": ...}, top_k=limit` -- the old `user_id=`/`limit=` kwargs are rejected
+  by this version).
+
+**Verified live in production** (not just unit tests): after redeploying,
+`journalctl -u aipal-v2` shows real `mem0.vector_stores.qdrant Inserting N vectors into
+collection mem0` on real conversation turns -- the first confirmed evidence mem0 has ever
+actually stored a memory in this environment.
+
+**Also wired this round**: `llm_chat`/`llm_stream` (in `llm_provider.py`) now automatically
+retry via `LLM_FALLBACK_PROVIDER` (DeepSeek) if the primary provider (Anthropic) call raises.
+Streaming only falls back if zero tokens have been yielded yet, to avoid stitching together a
+reply from two different models mid-sentence if a stream drops partway through. New
+`tests/test_llm_provider.py` (6 tests) covers both the chat and stream fallback paths, plus the
+"no fallback configured" and "fallback == primary" edge cases.
+
+**Ollama fully removed**: `_ollama_chat` function, `ollama_base_url`/`ollama_model` settings
+fields, `OLLAMA_*` lines from `.env.example` and `/etc/default/aipal-v2`, and all Ollama
+references in the ansible infra files (`infra/playbooks/deploy.yml`,
+`infra/templates/aipal.env.j2`, `infra/group_vars/all.yml`, `infra/README.md`). Config defaults
+now correctly reflect reality: `llm_provider=anthropic`, `llm_fallback_provider=deepseek`.
+Also found and removed an actual unused Docker container (`aipal-ollama-1`, stopped 2 months)
+and its 10.1GB `ollama/ollama:latest` image on the VM -- freed ~9GB of disk (85%->73% used,
+12GB->21GB free).
+
+**Cleanup**: deleted the stale `legacy/` folder (referenced a non-existent v1 `/opt/aipal`
+deployment), per explicit user approval.
+
+**Bonus bug caught and fixed before it could bite**: while testing mem0's Anthropic-backed
+fact extraction, found `/etc/default/aipal-v2`'s `ANTHROPIC_API_KEY`/`ANTHROPIC_MODEL` lines
+had CRLF line endings (`\r\n`) baked in from an earlier round's chat-paste, silently
+corrupting the values with a trailing `\r`. This passed unnoticed because the *currently
+running* process had the old, clean value loaded in memory since its last restart -- it would
+only have broken (with `httpx.LocalProtocolError: Illegal header value`) on the *next* restart,
+which was about to happen as part of this very deploy. Normalized to clean LF line endings
+before redeploying, avoiding what would have looked like a brand-new regression from this
+round's real changes.
+
+**Validated**: `pytest` 88/88 passing (was 82, +6 new). Committed `cf6ca21`, pushed. Backend-only
+change -- redeployed via `rsync` to `/opt/aipal-v2/apps/api/` + `systemctl restart aipal-v2`;
+confirmed via `scripts/smoke-test.sh` (full pass, real Anthropic 200 OK) and `journalctl` (no
+CRLF/credential errors, real mem0 vector inserts, storage path correctly owned by `teems`
+outside the deploy/rsync path). No mobile rebuild/redeploy needed.
+
+**Ask user to test**: have a few conversations mentioning personal details (e.g. a hobby, a
+pet's name, a preference) across separate sessions, then later ask the companion something
+that requires recalling that detail -- this is the first time this has ever actually worked,
+so it's worth confirming it feels noticeably more "aware" of prior context.
+
+---
+
 ## Related docs
 
 - [Wake word decision](./decisions/wake-word-engine.md)
